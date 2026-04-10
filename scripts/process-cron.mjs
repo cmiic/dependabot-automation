@@ -11,14 +11,13 @@ function setOutput(name, value) {
 
 const token = process.env.GITHUB_TOKEN
 const quarantineDays = Number.parseInt(process.env.QUARANTINE_DAYS ?? '3', 10)
-const candidateLabel = process.env.CANDIDATE_LABEL ?? 'dependabot-automerge-candidate'
 const mergeMethod = normalizeMergeMethod(process.env.MERGE_METHOD)
 
 const github = new GitHubClient({ token })
-const issues = await github.listOpenCandidateIssues(candidateLabel)
-const dependabotIssues = issues.filter((issue) => issue.pull_request && issue.user?.login === 'dependabot[bot]')
+const pullRequests = await github.listOpenPullRequests()
+const dependabotPullRequests = pullRequests.filter((pullRequest) => pullRequest.user?.login === 'dependabot[bot]')
 
-console.log(`Found ${dependabotIssues.length} open Dependabot PR(s) with label "${candidateLabel}"`)
+console.log(`Found ${dependabotPullRequests.length} open Dependabot PR(s)`)
 
 let processedCount = 0
 let quarantinePassedCount = 0
@@ -26,14 +25,14 @@ let automergeEnabledCount = 0
 let alreadyEnabledCount = 0
 let failedCount = 0
 
-for (const issue of dependabotIssues) {
+for (const pullRequestSummary of dependabotPullRequests) {
   processedCount += 1
 
-  const ageDays = calculateAgeDays(issue.created_at)
+  const ageDays = calculateAgeDays(pullRequestSummary.created_at)
 
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
-  console.log(`PR #${issue.number}`)
-  console.log(`  Created: ${issue.created_at}`)
+  console.log(`PR #${pullRequestSummary.number}`)
+  console.log(`  Created: ${pullRequestSummary.created_at}`)
   console.log(`  Age: ${ageDays} day(s)`)
 
   if (ageDays < quarantineDays) {
@@ -45,8 +44,8 @@ for (const issue of dependabotIssues) {
   console.log('  Quarantine passed')
 
   try {
-    const pullRequest = await github.getPullRequest(issue.number)
-    const comments = await github.listIssueComments(issue.number)
+    const pullRequest = await github.getPullRequest(pullRequestSummary.number)
+    const comments = await github.listIssueComments(pullRequestSummary.number)
     const approvalComment = comments
       .filter((comment) => comment.user?.login === 'github-actions[bot]')
       .map((comment) => ({ comment, payload: parseApprovalComment(comment.body) }))

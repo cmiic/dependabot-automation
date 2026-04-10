@@ -43,7 +43,6 @@ if (pullRequest.user?.login !== 'dependabot[bot]') {
 
 const token = process.env.GITHUB_TOKEN
 const quarantineDays = Number.parseInt(process.env.QUARANTINE_DAYS ?? '3', 10)
-const candidateLabel = process.env.CANDIDATE_LABEL ?? 'dependabot-automerge-candidate'
 const allowedEcosystems = new Set(parseCsvList(process.env.ALLOWED_ECOSYSTEMS))
 const packageEcosystem = process.env.METADATA_PACKAGE_ECOSYSTEM ?? ''
 const updateType = process.env.METADATA_UPDATE_TYPE ?? ''
@@ -144,8 +143,6 @@ if (existingApprovalComment) {
   await github.createIssueComment(pullRequest.number, approvalCommentBody)
 }
 
-await github.syncCandidateLabel(pullRequest.number, candidateLabel, candidate)
-
 if (!candidate) {
   outputs.reason = reason
   writeOutputs(outputs)
@@ -154,7 +151,7 @@ if (!candidate) {
 
 if (!quarantinePassed) {
   outputs.reason = 'waiting-for-quarantine'
-  console.log(`  Candidate label synced. Waiting for ${quarantineDays}-day quarantine.`)
+  console.log(`  Approval signal written. Waiting for ${quarantineDays}-day quarantine.`)
   writeOutputs(outputs)
   process.exit(0)
 }
@@ -176,7 +173,7 @@ try {
   outputs.reason = 'auto-merge-enabled'
   console.log('  Auto-merge enabled.')
 } catch (error) {
-  outputs.reason = 'candidate-label-set'
+  outputs.reason = 'approval-signal-written'
   console.log(`  Could not enable auto-merge: ${error.message}`)
 }
 

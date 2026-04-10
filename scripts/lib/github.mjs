@@ -1,8 +1,5 @@
 const API_VERSION = '2022-11-28'
 const USER_AGENT = 'cmiic-dependabot-automation'
-const DEFAULT_LABEL_COLOR = '1d76db'
-const DEFAULT_LABEL_DESCRIPTION = 'Dependabot PR approved for auto-merge after quarantine'
-
 export function parseCsvList(raw) {
   return String(raw ?? '')
     .split(',')
@@ -106,52 +103,6 @@ export class GitHubClient {
     return payload.data
   }
 
-  async ensureCandidateLabel(name) {
-    const encodedName = encodeURIComponent(name)
-
-    try {
-      await this.request('GET', `/repos/${this.owner}/${this.repo}/labels/${encodedName}`)
-    } catch (error) {
-      if (!(error instanceof GitHubRequestError) || error.status !== 404) {
-        throw error
-      }
-
-      await this.request('POST', `/repos/${this.owner}/${this.repo}/labels`, {
-        name,
-        color: DEFAULT_LABEL_COLOR,
-        description: DEFAULT_LABEL_DESCRIPTION,
-      })
-    }
-  }
-
-  async addIssueLabel(issueNumber, label) {
-    await this.ensureCandidateLabel(label)
-    await this.request('POST', `/repos/${this.owner}/${this.repo}/issues/${issueNumber}/labels`, {
-      labels: [label],
-    })
-  }
-
-  async removeIssueLabel(issueNumber, label) {
-    try {
-      await this.request('DELETE', `/repos/${this.owner}/${this.repo}/issues/${issueNumber}/labels/${encodeURIComponent(label)}`)
-    } catch (error) {
-      if (error instanceof GitHubRequestError && error.status === 404) {
-        return
-      }
-
-      throw error
-    }
-  }
-
-  async syncCandidateLabel(issueNumber, label, shouldHaveLabel) {
-    if (shouldHaveLabel) {
-      await this.addIssueLabel(issueNumber, label)
-      return
-    }
-
-    await this.removeIssueLabel(issueNumber, label)
-  }
-
   async enablePullRequestAutoMerge({ pullRequestId, mergeMethod }) {
     const data = await this.graphql(
       `
@@ -172,13 +123,13 @@ export class GitHubClient {
     return data.enablePullRequestAutoMerge.pullRequest
   }
 
-  async listOpenCandidateIssues(label) {
+  async listOpenPullRequests() {
     const items = []
 
     for (let page = 1; ; page += 1) {
       const pageItems = await this.request(
         'GET',
-        `/repos/${this.owner}/${this.repo}/issues?state=open&labels=${encodeURIComponent(label)}&per_page=100&page=${page}`
+        `/repos/${this.owner}/${this.repo}/pulls?state=open&per_page=100&page=${page}`
       )
 
       items.push(...pageItems)

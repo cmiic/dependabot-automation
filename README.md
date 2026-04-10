@@ -21,13 +21,12 @@ By default the PR action:
 - allows `github-actions`, `npm_and_yarn`, `devcontainers`, and `docker`
 - allows only semver `patch` and `minor` updates
 - checks changed `package-lock.json` and `npm-shrinkwrap.json` files for newly introduced dependencies on `npm_and_yarn`
-- adds or removes the candidate label `dependabot-automerge-candidate`
 - upserts a bot-authored approval comment tied to the current PR head SHA
 - enables auto-merge immediately if the quarantine period has already passed
 
 The cron action:
 
-- looks only at open Dependabot PRs that already have the candidate label
+- scans open Dependabot PRs directly
 - verifies the latest bot-authored approval comment is `approved` for the current PR head SHA
 - waits for the same quarantine period
 - enables auto-merge once the PR is old enough
@@ -90,7 +89,6 @@ Shared inputs:
 
 - `github-token`: required
 - `quarantine-days`: default `3`
-- `candidate-label`: default `dependabot-automerge-candidate`
 - `merge-method`: default `merge`
 
 `merge`-only inputs:
@@ -121,9 +119,8 @@ Shared inputs:
 
 ## Notes
 
-- Existing open PRs only become cron candidates after the `merge` action evaluates them for the current head SHA.
-- The action creates the candidate label automatically if it does not exist yet.
-- Cron does not trust the label alone. It also requires the latest machine-written approval comment from `github-actions[bot]` to say `approved` for the current PR head SHA.
+- Existing open PRs are safe for cron as soon as the `merge` action evaluates them for the current head SHA.
+- Cron requires the latest machine-written approval comment from `github-actions[bot]` to say `approved` for the current PR head SHA.
 - Wrapper workflows still own triggers and permissions. The repo only centralizes the behavior.
-- The `merge` wrapper needs `issues: write` because candidate labels are issue labels on pull requests.
-- The `cron` wrapper needs `issues: read` so it can find labeled pull requests.
+- The `merge` wrapper needs `issues: write` because approval comments are issue comments on pull requests.
+- The `cron` wrapper needs `issues: read` so it can inspect approval comments.
