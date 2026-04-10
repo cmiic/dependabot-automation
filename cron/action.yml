@@ -1,0 +1,48 @@
+name: Dependabot Automerge (Cron)
+description: Re-check aged Dependabot candidate PRs and enable auto-merge after quarantine.
+
+inputs:
+  github-token:
+    description: GitHub token with contents:write, pull-requests:write, and issues:read permissions.
+    required: true
+  quarantine-days:
+    description: Minimum PR age before auto-merge is enabled.
+    required: false
+    default: "3"
+  candidate-label:
+    description: Label used to mark PRs that the PR action has already approved as safe candidates.
+    required: false
+    default: dependabot-automerge-candidate
+  merge-method:
+    description: Auto-merge method. Supported values are merge, squash, and rebase.
+    required: false
+    default: merge
+
+outputs:
+  processed-count:
+    description: Number of open labeled Dependabot PRs inspected.
+    value: ${{ steps.run.outputs.processed-count }}
+  quarantine-passed-count:
+    description: Number of inspected PRs old enough for auto-merge.
+    value: ${{ steps.run.outputs.quarantine-passed-count }}
+  automerge-enabled-count:
+    description: Number of PRs whose auto-merge was enabled in this run.
+    value: ${{ steps.run.outputs.automerge-enabled-count }}
+  already-enabled-count:
+    description: Number of PRs that already had auto-merge enabled.
+    value: ${{ steps.run.outputs.already-enabled-count }}
+  failed-count:
+    description: Number of PRs for which enabling auto-merge failed.
+    value: ${{ steps.run.outputs.failed-count }}
+
+runs:
+  using: composite
+  steps:
+    - id: run
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        QUARANTINE_DAYS: ${{ inputs.quarantine-days }}
+        CANDIDATE_LABEL: ${{ inputs.candidate-label }}
+        MERGE_METHOD: ${{ inputs.merge-method }}
+      run: node "$GITHUB_ACTION_PATH/../scripts/process-cron.mjs"

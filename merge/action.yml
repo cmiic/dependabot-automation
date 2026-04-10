@@ -1,0 +1,153 @@
+name: Dependabot Automerge (PR)
+description: Evaluate a Dependabot pull request, sync a candidate label, and enable auto-merge after quarantine.
+
+inputs:
+  github-token:
+    description: GitHub token with contents:write, pull-requests:write, and issues:write permissions.
+    required: true
+  quarantine-days:
+    description: Minimum PR age before auto-merge is enabled.
+    required: false
+    default: "3"
+  candidate-label:
+    description: Label added to Dependabot PRs that are eligible for auto-merge after quarantine.
+    required: false
+    default: dependabot-automerge-candidate
+  allowed-ecosystems:
+    description: Comma-separated Dependabot ecosystems allowed for auto-merge.
+    required: false
+    default: github-actions,npm_and_yarn,devcontainers,docker
+  merge-method:
+    description: Auto-merge method. Supported values are merge, squash, and rebase.
+    required: false
+    default: merge
+  skip-commit-verification:
+    description: Forwarded to dependabot/fetch-metadata.
+    required: false
+    default: "true"
+
+outputs:
+  candidate:
+    description: Whether the PR is eligible for auto-merge after quarantine.
+    value: ${{ steps.result.outputs.candidate }}
+  quarantine-passed:
+    description: Whether the PR has passed the quarantine window.
+    value: ${{ steps.result.outputs.quarantine-passed }}
+  automerge-enabled:
+    description: Whether auto-merge is already enabled or was enabled by this run.
+    value: ${{ steps.result.outputs.automerge-enabled }}
+  reason:
+    description: High-level result of the evaluation.
+    value: ${{ steps.result.outputs.reason }}
+  package-ecosystem:
+    description: Dependabot package ecosystem from dependabot/fetch-metadata.
+    value: ${{ steps.result.outputs.package-ecosystem }}
+  update-type:
+    description: Dependabot update type from dependabot/fetch-metadata.
+    value: ${{ steps.result.outputs.update-type }}
+  age-days:
+    description: Integer PR age in days.
+    value: ${{ steps.result.outputs.age-days }}
+  lockfile-status:
+    description: Outcome of the npm lockfile check.
+    value: ${{ steps.result.outputs.lockfile-status }}
+
+runs:
+  using: composite
+  steps:
+    - id: guard
+      shell: bash
+      run: |
+        if [ "${{ github.event_name }}" != "pull_request" ]; then
+          echo "run=false" >> "$GITHUB_OUTPUT"
+          echo "candidate=false" >> "$GITHUB_OUTPUT"
+          echo "quarantine-passed=false" >> "$GITHUB_OUTPUT"
+          echo "automerge-enabled=false" >> "$GITHUB_OUTPUT"
+          echo "reason=not-pull-request" >> "$GITHUB_OUTPUT"
+          echo "package-ecosystem=" >> "$GITHUB_OUTPUT"
+          echo "update-type=" >> "$GITHUB_OUTPUT"
+          echo "age-days=0" >> "$GITHUB_OUTPUT"
+          echo "lockfile-status=skipped" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        if [ "${{ github.event.pull_request.user.login }}" != "dependabot[bot]" ]; then
+          echo "run=false" >> "$GITHUB_OUTPUT"
+          echo "candidate=false" >> "$GITHUB_OUTPUT"
+          echo "quarantine-passed=false" >> "$GITHUB_OUTPUT"
+          echo "automerge-enabled=false" >> "$GITHUB_OUTPUT"
+          echo "reason=not-dependabot" >> "$GITHUB_OUTPUT"
+          echo "package-ecosystem=" >> "$GITHUB_OUTPUT"
+          echo "update-type=" >> "$GITHUB_OUTPUT"
+          echo "age-days=0" >> "$GITHUB_OUTPUT"
+          echo "lockfile-status=skipped" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        echo "run=true" >> "$GITHUB_OUTPUT"
+
+    - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      if: steps.guard.outputs.run == 'true'
+      with:
+        fetch-depth: 0
+        ref: ${{ github.event.pull_request.head.sha }}
+
+    - id: metadata
+      if: steps.guard.outputs.run == 'true'
+      uses: dependabot/fetch-metadata@ffa630c65fa7e0ecfa0625b5ceda64399aea1b36 # v3.0.0
+      with:
+        github-token: ${{ inputs.github-token }}
+        skip-commit-verification: ${{ inputs.skip-commit-verification }}
+
+    - id: evaluate
+      if: steps.guard.outputs.run == 'true'
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        QUARANTINE_DAYS: ${{ inputs.quarantine-days }}
+        CANDIDATE_LABEL: ${{ inputs.candidate-label }}
+        ALLOWED_ECOSYSTEMS: ${{ inputs.allowed-ecosystems }}
+        MERGE_METHOD: ${{ inputs.merge-method }}
+        METADATA_PACKAGE_ECOSYSTEM: ${{ steps.metadata.outputs.package-ecosystem }}
+        METADATA_UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
+      run: node "$GITHUB_ACTION_PATH/../scripts/evaluate-pull-request.mjs"
+
+    - id: result
+      shell: bash
+      env:
+        GUARD_CANDIDATE: ${{ steps.guard.outputs.candidate }}
+        GUARD_QUARANTINE_PASSED: ${{ steps.guard.outputs.quarantine-passed }}
+        GUARD_AUTOMERGE_ENABLED: ${{ steps.guard.outputs.automerge-enabled }}
+        GUARD_REASON: ${{ steps.guard.outputs.reason }}
+        GUARD_PACKAGE_ECOSYSTEM: ${{ steps.guard.outputs.package-ecosystem }}
+        GUARD_UPDATE_TYPE: ${{ steps.guard.outputs.update-type }}
+        GUARD_AGE_DAYS: ${{ steps.guard.outputs.age-days }}
+        GUARD_LOCKFILE_STATUS: ${{ steps.guard.outputs.lockfile-status }}
+        EVALUATE_CANDIDATE: ${{ steps.evaluate.outputs.candidate }}
+        EVALUATE_QUARANTINE_PASSED: ${{ steps.evaluate.outputs.quarantine-passed }}
+        EVALUATE_AUTOMERGE_ENABLED: ${{ steps.evaluate.outputs.automerge-enabled }}
+        EVALUATE_REASON: ${{ steps.evaluate.outputs.reason }}
+        EVALUATE_PACKAGE_ECOSYSTEM: ${{ steps.evaluate.outputs.package-ecosystem }}
+        EVALUATE_UPDATE_TYPE: ${{ steps.evaluate.outputs.update-type }}
+        EVALUATE_AGE_DAYS: ${{ steps.evaluate.outputs.age-days }}
+        EVALUATE_LOCKFILE_STATUS: ${{ steps.evaluate.outputs.lockfile-status }}
+      run: |
+        pick() {
+          name="$1"
+          evaluated="$2"
+          guarded="$3"
+          if [ -n "$evaluated" ]; then
+            echo "$name=$evaluated" >> "$GITHUB_OUTPUT"
+          else
+            echo "$name=$guarded" >> "$GITHUB_OUTPUT"
+          fi
+        }
+
+        pick candidate "$EVALUATE_CANDIDATE" "$GUARD_CANDIDATE"
+        pick quarantine-passed "$EVALUATE_QUARANTINE_PASSED" "$GUARD_QUARANTINE_PASSED"
+        pick automerge-enabled "$EVALUATE_AUTOMERGE_ENABLED" "$GUARD_AUTOMERGE_ENABLED"
+        pick reason "$EVALUATE_REASON" "$GUARD_REASON"
+        pick package-ecosystem "$EVALUATE_PACKAGE_ECOSYSTEM" "$GUARD_PACKAGE_ECOSYSTEM"
+        pick update-type "$EVALUATE_UPDATE_TYPE" "$GUARD_UPDATE_TYPE"
+        pick age-days "$EVALUATE_AGE_DAYS" "$GUARD_AGE_DAYS"
+        pick lockfile-status "$EVALUATE_LOCKFILE_STATUS" "$GUARD_LOCKFILE_STATUS"

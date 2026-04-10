@@ -1,0 +1,14 @@
+{
+  "name": "dependabot-automation",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "check": "node --check scripts/lib/approval-signal.mjs && node --check scripts/lib/github.mjs && node --check scripts/lib/lockfiles.mjs && node --check scripts/evaluate-pull-request.mjs && node --check scripts/process-cron.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "test:approval": "node --test tests/approval-signal.test.mjs",
+    "test:lockfiles": "node --test tests/lockfiles.test.mjs"
+  }
+}

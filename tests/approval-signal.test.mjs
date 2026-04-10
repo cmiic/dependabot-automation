@@ -1,0 +1,35 @@
+import assert from 'node:assert/strict'
+import test from 'node:test'
+
+import { buildApprovalComment, isAutomationApprovalComment, parseApprovalComment } from '../scripts/lib/approval-signal.mjs'
+
+test('buildApprovalComment creates a parseable machine marker', () => {
+  const comment = buildApprovalComment({
+    status: 'approved',
+    sha: 'abc123',
+    reason: 'eligible',
+    packageEcosystem: 'npm_and_yarn',
+    updateType: 'version-update:semver-minor',
+    lockfileStatus: 'clear',
+    checkedAt: '2026-04-10T12:00:00.000Z',
+  })
+
+  assert.equal(isAutomationApprovalComment(comment), true)
+
+  const payload = parseApprovalComment(comment)
+
+  assert.deepEqual(payload, {
+    status: 'approved',
+    sha: 'abc123',
+    reason: 'eligible',
+    packageEcosystem: 'npm_and_yarn',
+    updateType: 'version-update:semver-minor',
+    lockfileStatus: 'clear',
+    checkedAt: '2026-04-10T12:00:00.000Z',
+  })
+})
+
+test('parseApprovalComment ignores unrelated bodies', () => {
+  assert.equal(parseApprovalComment('plain comment'), null)
+  assert.equal(isAutomationApprovalComment('plain comment'), false)
+})
