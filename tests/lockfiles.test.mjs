@@ -28,24 +28,13 @@ test('extractDependencies supports lockfiles with packages entries', () => {
     },
   })
 
-  assert.deepEqual([...dependencies].sort(), ['bar', 'react'])
+  assert.deepEqual([...dependencies].sort(), ['foo/node_modules/bar', 'react'])
 })
 
-test('extractDependencies falls back to the legacy dependencies tree', () => {
-  const dependencies = extractDependencies({
-    dependencies: {
-      react: {
-        version: '18.0.0',
-        dependencies: {
-          scheduler: {
-            version: '0.23.0',
-          },
-        },
-      },
-    },
+test('extractDependencies rejects unsupported lockfile formats', () => {
+  assert.throws(() => extractDependencies({ dependencies: { react: { version: '18.0.0' } } }), {
+    message: 'unsupported-lockfile-format: expected lockfile.packages object',
   })
-
-  assert.deepEqual([...dependencies].sort(), ['react', 'scheduler'])
 })
 
 test('checkChangedLockfiles reports newly introduced dependencies in changed lockfiles', () => {
@@ -144,6 +133,99 @@ test('checkChangedLockfiles ignores version-only updates', () => {
     assert.equal(result.ok, true)
     assert.equal(result.status, 'clear')
     assert.deepEqual(result.newDependencies, [])
+  } finally {
+    rmSync(repoDir, { recursive: true, force: true })
+  }
+})
+
+test('checkChangedLockfiles treats newly added lockfiles as manual review', () => {
+  const repoDir = mkdtempSync(path.join(tmpdir(), 'dependabot-automation-lockfiles-'))
+
+  try {
+    git(repoDir, ['init'])
+    git(repoDir, ['config', 'user.name', 'Codex'])
+    git(repoDir, ['config', 'user.email', 'codex@example.com'])
+
+    writeFileSync(path.join(repoDir, 'README.md'), 'demo\n')
+    git(repoDir, ['add', 'README.md'])
+    git(repoDir, ['commit', '-m', 'base'])
+    const baseSha = git(repoDir, ['rev-parse', 'HEAD'])
+
+    writeJson(path.join(repoDir, 'package-lock.json'), {
+      name: 'demo',
+      lockfileVersion: 3,
+      packages: {
+        '': {},
+        'node_modules/react': {
+          version: '18.2.0',
+        },
+      },
+    })
+
+    git(repoDir, ['add', 'package-lock.json'])
+    git(repoDir, ['commit', '-m', 'add lockfile'])
+    const headSha = git(repoDir, ['rev-parse', 'HEAD'])
+
+    const result = checkChangedLockfiles({ baseSha, headSha, cwd: repoDir })
+
+    assert.equal(result.ok, false)
+    assert.equal(result.status, 'error')
+    assert.deepEqual(result.errors, ['package-lock.json:missing-in-base'])
+  } finally {
+    rmSync(repoDir, { recursive: true, force: true })
+  }
+})
+
+test('checkChangedLockfiles does not let nested packages mask new top-level packages', () => {
+  const repoDir = mkdtempSync(path.join(tmpdir(), 'dependabot-automation-lockfiles-'))
+
+  try {
+    git(repoDir, ['init'])
+    git(repoDir, ['config', 'user.name', 'Codex'])
+    git(repoDir, ['config', 'user.email', 'codex@example.com'])
+
+    const lockfilePath = path.join(repoDir, 'package-lock.json')
+
+    writeJson(lockfilePath, {
+      name: 'demo',
+      lockfileVersion: 3,
+      packages: {
+        '': {},
+        'node_modules/innocent': {
+          version: '1.0.0',
+        },
+        'node_modules/innocent/node_modules/malicious': {
+          version: '1.0.0',
+        },
+      },
+    })
+
+    git(repoDir, ['add', 'package-lock.json'])
+    git(repoDir, ['commit', '-m', 'base'])
+    const baseSha = git(repoDir, ['rev-parse', 'HEAD'])
+
+    writeJson(lockfilePath, {
+      name: 'demo',
+      lockfileVersion: 3,
+      packages: {
+        '': {},
+        'node_modules/innocent': {
+          version: '1.0.0',
+        },
+        'node_modules/malicious': {
+          version: '1.0.0',
+        },
+      },
+    })
+
+    git(repoDir, ['commit', '-am', 'promote malicious'])
+    const headSha = git(repoDir, ['rev-parse', 'HEAD'])
+
+    const result = checkChangedLockfiles({ baseSha, headSha, cwd: repoDir })
+
+    assert.equal(result.ok, false)
+    assert.equal(result.status, 'new-dependencies')
+    assert.deepEqual(result.newDependencies, ['package-lock.json: malicious'])
   } finally {
     rmSync(repoDir, { recursive: true, force: true })
   }
