@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { buildApprovalComment, parseApprovalComment, resolveApprovalCheckedAt } from './lib/approval-signal.mjs'
 import { GitHubClient, calculateAgeDays, parseCsvList } from './lib/github.mjs'
 import { checkChangedLockfiles } from './lib/lockfiles.mjs'
+import { findUnexpectedFiles, listChangedFiles } from './lib/pr-changes.mjs'
 
 function setOutput(name, value) {
   const delimiter = `EOF_${randomUUID()}`
@@ -73,6 +74,26 @@ if (
   console.log(`  Skipping: ${reason}`)
 }
 
+if (candidate) {
+  const changedFiles = listChangedFiles({
+    baseSha: pullRequest.base.sha,
+    headSha: pullRequest.head.sha,
+  })
+  const unexpectedFiles = findUnexpectedFiles({
+    packageEcosystem,
+    changedFiles,
+  })
+
+  if (unexpectedFiles.length > 0) {
+    candidate = false
+    reason = 'unexpected-file-modifications'
+    console.log('  Unexpected files changed:')
+    for (const file of unexpectedFiles) {
+      console.log(`    - ${file}`)
+    }
+  }
+}
+
 if (candidate && packageEcosystem === 'npm_and_yarn') {
   console.log('  Checking changed npm lockfiles for newly introduced dependencies...')
 
@@ -89,11 +110,19 @@ if (candidate && packageEcosystem === 'npm_and_yarn') {
     console.log('  No changed npm lockfiles found.')
   }
 
+  for (const unsupportedFile of lockfileResult.unsupportedFiles) {
+    console.log(`  Unsupported lockfile changed: ${unsupportedFile}`)
+  }
+
   for (const skippedFile of lockfileResult.skippedFiles) {
     console.log(`  Note: ${skippedFile}`)
   }
 
-  if (lockfileResult.errors.length > 0) {
+  if (lockfileResult.status === 'unsupported-lockfile') {
+    candidate = false
+    reason = 'unsupported-lockfile'
+    console.log('  Unsupported lockfiles require manual review.')
+  } else if (lockfileResult.errors.length > 0) {
     candidate = false
     reason = 'lockfile-check-failed'
     console.log('  Lockfile check failed:')

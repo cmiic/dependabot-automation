@@ -20,7 +20,10 @@ By default the PR action:
 - only acts on `dependabot[bot]` pull requests
 - allows `github-actions`, `npm_and_yarn`, `devcontainers`, and `docker`
 - allows only semver `patch` and `minor` updates
+- requires Dependabot commit verification unless you explicitly opt out
+- rejects pull requests that modify files outside the expected dependency-update surface for the detected ecosystem
 - checks changed `package-lock.json` and `npm-shrinkwrap.json` files for newly introduced dependencies on `npm_and_yarn`
+- fails closed on `npm_and_yarn` pull requests that modify unsupported lockfiles such as `yarn.lock` or `pnpm-lock.yaml`
 - requires modern npm lockfiles with a `packages` object and treats new or unreadable lockfiles as manual review
 - upserts a bot-authored approval comment tied to the current PR head SHA
 - preserves the first evaluation timestamp for the current head SHA so quarantine cannot be bypassed by reruns
@@ -94,7 +97,9 @@ Shared inputs:
 `merge`-only inputs:
 
 - `allowed-ecosystems`: default `github-actions,npm_and_yarn,devcontainers,docker`
-- `skip-commit-verification`: default `true`
+- `skip-commit-verification`: default `false`
+  Setting this to `true` weakens the branch-tampering defense and should be treated as an explicit trust decision.
+  Warning: Setting `skip-commit-verification: true` allows tampered PRs to be merged if an attacker hides malicious code inside expected files (e.g., modifying `package.json` scripts or adding malicious steps to `.github/workflows/*.yml`).
 
 `cron`-only inputs:
 

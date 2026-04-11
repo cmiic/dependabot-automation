@@ -1,19 +1,17 @@
-import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 
-const LOCKFILE_BASENAMES = new Set(['package-lock.json', 'npm-shrinkwrap.json'])
+import { listChangedFiles, runGit } from './pr-changes.mjs'
 
-function runGit(args, cwd = process.cwd()) {
-  return execFileSync('git', args, {
-    cwd,
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-  })
-}
+const LOCKFILE_BASENAMES = new Set(['package-lock.json', 'npm-shrinkwrap.json'])
+const UNSUPPORTED_LOCKFILE_BASENAMES = new Set(['yarn.lock', 'pnpm-lock.yaml'])
 
 function isSupportedLockfile(filePath) {
   return LOCKFILE_BASENAMES.has(path.basename(filePath))
+}
+
+function isUnsupportedLockfile(filePath) {
+  return UNSUPPORTED_LOCKFILE_BASENAMES.has(path.basename(filePath))
 }
 
 function addDependenciesFromPackages(packages, dependencies) {
@@ -62,20 +60,23 @@ function isMissingPathInBase(error) {
 }
 
 export function findChangedLockfiles({ baseSha, headSha, cwd = process.cwd() }) {
-  const output = runGit(['diff', '--name-only', baseSha, headSha], cwd)
+  const changedFiles = listChangedFiles({ baseSha, headSha, cwd })
 
-  return output
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .filter(isSupportedLockfile)
+  return {
+    changedFiles: changedFiles.filter(isSupportedLockfile),
+    unsupportedFiles: changedFiles.filter(isUnsupportedLockfile),
+  }
 }
 
 export function checkChangedLockfiles({ baseSha, headSha, cwd = process.cwd() }) {
-  const changedFiles = findChangedLockfiles({ baseSha, headSha, cwd })
+  const { changedFiles, unsupportedFiles } = findChangedLockfiles({ baseSha, headSha, cwd })
   const newDependencies = []
   const errors = []
   const skippedFiles = []
+
+  for (const file of unsupportedFiles) {
+    errors.push(`${file}:unsupported-lockfile`)
+  }
 
   for (const file of changedFiles) {
     const fullPath = path.join(cwd, file)
@@ -122,7 +123,9 @@ export function checkChangedLockfiles({ baseSha, headSha, cwd = process.cwd() })
   }
 
   let status = 'clear'
-  if (changedFiles.length === 0) {
+  if (unsupportedFiles.length > 0) {
+    status = 'unsupported-lockfile'
+  } else if (changedFiles.length === 0) {
     status = 'no-lockfiles'
   } else if (errors.length > 0) {
     status = 'error'
@@ -134,6 +137,7 @@ export function checkChangedLockfiles({ baseSha, headSha, cwd = process.cwd() })
     ok: errors.length === 0 && newDependencies.length === 0,
     status,
     changedFiles,
+    unsupportedFiles,
     skippedFiles,
     newDependencies,
     errors,
