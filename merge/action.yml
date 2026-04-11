@@ -14,9 +14,9 @@ inputs:
     required: false
     default: github-actions,npm_and_yarn,devcontainers,docker
   skip-commit-verification:
-    description: Forwarded to dependabot/fetch-metadata.
+    description: Forwarded to dependabot/fetch-metadata. Set to true only if you intentionally accept unsigned or non-Dependabot commits on bot PRs.
     required: false
-    default: "true"
+    default: "false"
 
 outputs:
   candidate:
@@ -41,7 +41,7 @@ outputs:
     description: Integer approval age in days for the current head SHA.
     value: ${{ steps.result.outputs.age-days }}
   lockfile-status:
-    description: Outcome of the npm lockfile check.
+    description: Outcome of the npm lockfile policy check.
     value: ${{ steps.result.outputs.lockfile-status }}
 
 runs:

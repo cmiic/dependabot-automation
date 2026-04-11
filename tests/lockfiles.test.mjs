@@ -230,3 +230,32 @@ test('checkChangedLockfiles does not let nested packages mask new top-level pack
     rmSync(repoDir, { recursive: true, force: true })
   }
 })
+
+test('checkChangedLockfiles fails closed for unsupported yarn lockfiles', () => {
+  const repoDir = mkdtempSync(path.join(tmpdir(), 'dependabot-automation-lockfiles-'))
+
+  try {
+    git(repoDir, ['init'])
+    git(repoDir, ['config', 'user.name', 'Codex'])
+    git(repoDir, ['config', 'user.email', 'codex@example.com'])
+
+    writeFileSync(path.join(repoDir, 'yarn.lock'), '# yarn lockfile v1\n')
+    git(repoDir, ['add', 'yarn.lock'])
+    git(repoDir, ['commit', '-m', 'base'])
+    const baseSha = git(repoDir, ['rev-parse', 'HEAD'])
+
+    writeFileSync(path.join(repoDir, 'yarn.lock'), '# yarn lockfile v1\nleft-pad@1.3.0:\n')
+    git(repoDir, ['commit', '-am', 'update yarn lock'])
+    const headSha = git(repoDir, ['rev-parse', 'HEAD'])
+
+    const result = checkChangedLockfiles({ baseSha, headSha, cwd: repoDir })
+
+    assert.equal(result.ok, false)
+    assert.equal(result.status, 'unsupported-lockfile')
+    assert.deepEqual(result.changedFiles, [])
+    assert.deepEqual(result.unsupportedFiles, ['yarn.lock'])
+    assert.deepEqual(result.errors, ['yarn.lock:unsupported-lockfile'])
+  } finally {
+    rmSync(repoDir, { recursive: true, force: true })
+  }
+})
