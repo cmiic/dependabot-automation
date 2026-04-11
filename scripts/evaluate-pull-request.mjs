@@ -1,8 +1,8 @@
 import { appendFileSync, readFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 
-import { buildApprovalComment, isAutomationApprovalComment } from './lib/approval-signal.mjs'
-import { GitHubClient, calculateAgeDays, normalizeMergeMethod, parseCsvList } from './lib/github.mjs'
+import { buildApprovalComment, parseApprovalComment, resolveApprovalCheckedAt } from './lib/approval-signal.mjs'
+import { GitHubClient, calculateAgeDays, parseCsvList } from './lib/github.mjs'
 import { checkChangedLockfiles } from './lib/lockfiles.mjs'
 
 function setOutput(name, value) {
@@ -46,21 +46,13 @@ const quarantineDays = Number.parseInt(process.env.QUARANTINE_DAYS ?? '3', 10)
 const allowedEcosystems = new Set(parseCsvList(process.env.ALLOWED_ECOSYSTEMS))
 const packageEcosystem = process.env.METADATA_PACKAGE_ECOSYSTEM ?? ''
 const updateType = process.env.METADATA_UPDATE_TYPE ?? ''
-const mergeMethod = normalizeMergeMethod(process.env.MERGE_METHOD)
 
 outputs['package-ecosystem'] = packageEcosystem
 outputs['update-type'] = updateType
 
-const ageDays = calculateAgeDays(pullRequest.created_at)
-const quarantinePassed = ageDays >= quarantineDays
-
-outputs['age-days'] = String(ageDays)
-outputs['quarantine-passed'] = quarantinePassed ? 'true' : 'false'
-
 console.log(`Evaluating PR #${pullRequest.number}`)
 console.log(`  Ecosystem: ${packageEcosystem || 'unknown'}`)
 console.log(`  Update type: ${updateType || 'unknown'}`)
-console.log(`  Age: ${ageDays} day(s)`)
 
 let candidate = true
 let reason = 'eligible'
@@ -123,7 +115,27 @@ if (candidate && packageEcosystem === 'npm_and_yarn') {
 outputs.candidate = candidate ? 'true' : 'false'
 
 const github = new GitHubClient({ token })
+const existingComments = await github.listIssueComments(pullRequest.number)
+const existingApprovalComment = existingComments
+  .filter((comment) => comment.user?.login === 'github-actions[bot]')
+  .map((comment) => ({ comment, payload: parseApprovalComment(comment.body) }))
+  .filter((entry) => entry.payload)
+  .sort((left, right) => Date.parse(right.comment.updated_at) - Date.parse(left.comment.updated_at))[0]
+
+const checkedAt = resolveApprovalCheckedAt({
+  existingPayload: existingApprovalComment?.payload,
+  sha: pullRequest.head.sha,
+})
+const ageDays = calculateAgeDays(checkedAt)
+const quarantinePassed = ageDays >= quarantineDays
 const approvalStatus = candidate ? 'approved' : 'rejected'
+
+outputs['age-days'] = String(ageDays)
+outputs['quarantine-passed'] = quarantinePassed ? 'true' : 'false'
+outputs['automerge-enabled'] = pullRequest.auto_merge ? 'true' : 'false'
+
+console.log(`  Approval age: ${ageDays} day(s)`)
+
 const approvalCommentBody = buildApprovalComment({
   status: approvalStatus,
   sha: pullRequest.head.sha,
@@ -131,14 +143,11 @@ const approvalCommentBody = buildApprovalComment({
   packageEcosystem,
   updateType,
   lockfileStatus: outputs['lockfile-status'],
+  checkedAt,
 })
-const existingComments = await github.listIssueComments(pullRequest.number)
-const existingApprovalComment = existingComments
-  .filter((comment) => comment.user?.login === 'github-actions[bot]')
-  .find((comment) => isAutomationApprovalComment(comment.body))
 
 if (existingApprovalComment) {
-  await github.updateIssueComment(existingApprovalComment.id, approvalCommentBody)
+  await github.updateIssueComment(existingApprovalComment.comment.id, approvalCommentBody)
 } else {
   await github.createIssueComment(pullRequest.number, approvalCommentBody)
 }
@@ -157,24 +166,12 @@ if (!quarantinePassed) {
 }
 
 if (pullRequest.auto_merge) {
-  outputs['automerge-enabled'] = 'true'
   outputs.reason = 'auto-merge-already-enabled'
   console.log('  Auto-merge is already enabled.')
   writeOutputs(outputs)
   process.exit(0)
 }
 
-try {
-  await github.enablePullRequestAutoMerge({
-    pullRequestId: pullRequest.node_id,
-    mergeMethod,
-  })
-  outputs['automerge-enabled'] = 'true'
-  outputs.reason = 'auto-merge-enabled'
-  console.log('  Auto-merge enabled.')
-} catch (error) {
-  outputs.reason = 'approval-signal-written'
-  console.log(`  Could not enable auto-merge: ${error.message}`)
-}
-
+outputs.reason = 'approved-awaiting-cron'
+console.log('  Approval signal written. Cron may enable auto-merge after quarantine.')
 writeOutputs(outputs)

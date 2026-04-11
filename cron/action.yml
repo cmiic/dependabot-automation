@@ -6,7 +6,7 @@ inputs:
     description: GitHub token with contents:write, pull-requests:write, and issues:read permissions.
     required: true
   quarantine-days:
-    description: Minimum PR age before auto-merge is enabled.
+    description: Minimum approval age before auto-merge is enabled.
     required: false
     default: "3"
   merge-method:

@@ -27,42 +27,38 @@ function addDependenciesFromPackages(packages, dependencies) {
       continue
     }
 
-    let dependencyPath = match[1]
-    const lastNestedNodeModules = dependencyPath.lastIndexOf('node_modules/')
-    if (lastNestedNodeModules !== -1) {
-      dependencyPath = dependencyPath.slice(lastNestedNodeModules + 'node_modules/'.length)
-    }
-
-    dependencies.add(dependencyPath)
-  }
-}
-
-function addDependenciesFromTree(tree, dependencies) {
-  if (!tree || typeof tree !== 'object') {
-    return
-  }
-
-  for (const [name, meta] of Object.entries(tree)) {
-    dependencies.add(name)
-
-    if (meta && typeof meta === 'object' && meta.dependencies) {
-      addDependenciesFromTree(meta.dependencies, dependencies)
-    }
+    dependencies.add(match[1])
   }
 }
 
 export function extractDependencies(lockfile) {
+  if (!lockfile?.packages || typeof lockfile.packages !== 'object') {
+    throw new Error('unsupported-lockfile-format: expected lockfile.packages object')
+  }
+
   const dependencies = new Set()
-
-  if (lockfile?.packages && typeof lockfile.packages === 'object') {
-    addDependenciesFromPackages(lockfile.packages, dependencies)
-  }
-
-  if (dependencies.size === 0 && lockfile?.dependencies && typeof lockfile.dependencies === 'object') {
-    addDependenciesFromTree(lockfile.dependencies, dependencies)
-  }
+  addDependenciesFromPackages(lockfile.packages, dependencies)
 
   return dependencies
+}
+
+function getErrorMessage(error) {
+  const message = error instanceof Error ? error.message : String(error)
+  const normalized = message.replace(/\s+/g, ' ').trim()
+
+  if (normalized.length <= 240) {
+    return normalized
+  }
+
+  return `${normalized.slice(0, 237)}...`
+}
+
+function isMissingPathInBase(error) {
+  const message = getErrorMessage(error)
+  return (
+    message.includes(' exists on disk, but not in ') ||
+    (message.includes("fatal: path '") && message.includes("' does not exist in '"))
+  )
 }
 
 export function findChangedLockfiles({ baseSha, headSha, cwd = process.cwd() }) {
@@ -92,8 +88,12 @@ export function checkChangedLockfiles({ baseSha, headSha, cwd = process.cwd() })
     let baseContent
     try {
       baseContent = runGit(['show', `${baseSha}:${file}`], cwd)
-    } catch {
-      skippedFiles.push(`${file}:new-file`)
+    } catch (error) {
+      if (isMissingPathInBase(error)) {
+        errors.push(`${file}:missing-in-base`)
+      } else {
+        errors.push(`${file}:git-show-failed:${getErrorMessage(error)}`)
+      }
       continue
     }
 

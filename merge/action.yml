@@ -1,22 +1,18 @@
 name: Dependabot Automerge (PR)
-description: Evaluate a Dependabot pull request, write an approval signal, and enable auto-merge after quarantine.
+description: Evaluate a Dependabot pull request and write an approval signal for the cron enforcer.
 
 inputs:
   github-token:
     description: GitHub token with contents:write, pull-requests:write, and issues:write permissions.
     required: true
   quarantine-days:
-    description: Minimum PR age before auto-merge is enabled.
+    description: Minimum approval age before the cron action may enable auto-merge.
     required: false
     default: "3"
   allowed-ecosystems:
     description: Comma-separated Dependabot ecosystems allowed for auto-merge.
     required: false
     default: github-actions,npm_and_yarn,devcontainers,docker
-  merge-method:
-    description: Auto-merge method. Supported values are merge, squash, and rebase.
-    required: false
-    default: merge
   skip-commit-verification:
     description: Forwarded to dependabot/fetch-metadata.
     required: false
@@ -30,7 +26,7 @@ outputs:
     description: Whether the PR has passed the quarantine window.
     value: ${{ steps.result.outputs.quarantine-passed }}
   automerge-enabled:
-    description: Whether auto-merge is already enabled or was enabled by this run.
+    description: Whether auto-merge is already enabled on the pull request.
     value: ${{ steps.result.outputs.automerge-enabled }}
   reason:
     description: High-level result of the evaluation.
@@ -42,7 +38,7 @@ outputs:
     description: Dependabot update type from dependabot/fetch-metadata.
     value: ${{ steps.result.outputs.update-type }}
   age-days:
-    description: Integer PR age in days.
+    description: Integer approval age in days for the current head SHA.
     value: ${{ steps.result.outputs.age-days }}
   lockfile-status:
     description: Outcome of the npm lockfile check.
@@ -85,8 +81,12 @@ runs:
     - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       if: steps.guard.outputs.run == 'true'
       with:
-        fetch-depth: 0
+        fetch-depth: 1
         ref: ${{ github.event.pull_request.head.sha }}
+
+    - if: steps.guard.outputs.run == 'true'
+      shell: bash
+      run: git fetch --no-tags --depth=1 origin "${{ github.event.pull_request.base.sha }}"
 
     - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
       if: steps.guard.outputs.run == 'true'
@@ -107,7 +107,6 @@ runs:
         GITHUB_TOKEN: ${{ inputs.github-token }}
         QUARANTINE_DAYS: ${{ inputs.quarantine-days }}
         ALLOWED_ECOSYSTEMS: ${{ inputs.allowed-ecosystems }}
-        MERGE_METHOD: ${{ inputs.merge-method }}
         METADATA_PACKAGE_ECOSYSTEM: ${{ steps.metadata.outputs.package-ecosystem }}
         METADATA_UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
       run: node "$GITHUB_ACTION_PATH/../scripts/evaluate-pull-request.mjs"

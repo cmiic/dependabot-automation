@@ -3,7 +3,7 @@
 Two GitHub Actions for the Dependabot policy you have been maintaining in per-repo workflows:
 
 - `merge/` evaluates Dependabot pull requests when they open or change
-- `cron/` re-checks aged candidate PRs and enables auto-merge after quarantine
+- `cron/` re-checks approved PRs and enables auto-merge after quarantine
 
 The split is intentional:
 
@@ -21,15 +21,16 @@ By default the PR action:
 - allows `github-actions`, `npm_and_yarn`, `devcontainers`, and `docker`
 - allows only semver `patch` and `minor` updates
 - checks changed `package-lock.json` and `npm-shrinkwrap.json` files for newly introduced dependencies on `npm_and_yarn`
+- requires modern npm lockfiles with a `packages` object and treats new or unreadable lockfiles as manual review
 - upserts a bot-authored approval comment tied to the current PR head SHA
-- enables auto-merge immediately if the quarantine period has already passed
+- preserves the first evaluation timestamp for the current head SHA so quarantine cannot be bypassed by reruns
 
 The cron action:
 
 - scans open Dependabot PRs directly
 - verifies the latest bot-authored approval comment is `approved` for the current PR head SHA
-- waits for the same quarantine period
-- enables auto-merge once the PR is old enough
+- waits for the same quarantine period based on that approval comment timestamp
+- is the only action that enables auto-merge
 
 ## Wrapper Workflows
 
@@ -89,12 +90,15 @@ Shared inputs:
 
 - `github-token`: required
 - `quarantine-days`: default `3`
-- `merge-method`: default `merge`
 
 `merge`-only inputs:
 
 - `allowed-ecosystems`: default `github-actions,npm_and_yarn,devcontainers,docker`
 - `skip-commit-verification`: default `true`
+
+`cron`-only inputs:
+
+- `merge-method`: default `merge`
 
 ## Outputs
 
@@ -121,6 +125,7 @@ Shared inputs:
 
 - Existing open PRs are safe for cron as soon as the `merge` action evaluates them for the current head SHA.
 - Cron requires the latest machine-written approval comment from `github-actions[bot]` to say `approved` for the current PR head SHA.
+- The quarantine timer is anchored to the approval comment timestamp for the current head SHA, not the PR creation time.
 - Wrapper workflows still own triggers and permissions. The repo only centralizes the behavior.
 - The `merge` wrapper needs `issues: write` because approval comments are issue comments on pull requests.
 - The `cron` wrapper needs `issues: read` so it can inspect approval comments.

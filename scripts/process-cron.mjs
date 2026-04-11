@@ -1,7 +1,7 @@
 import { appendFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 
-import { parseApprovalComment } from './lib/approval-signal.mjs'
+import { getApprovalCheckedAt, parseApprovalComment } from './lib/approval-signal.mjs'
 import { GitHubClient, calculateAgeDays, normalizeMergeMethod } from './lib/github.mjs'
 
 function setOutput(name, value) {
@@ -28,20 +28,9 @@ let failedCount = 0
 for (const pullRequestSummary of dependabotPullRequests) {
   processedCount += 1
 
-  const ageDays = calculateAgeDays(pullRequestSummary.created_at)
-
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
   console.log(`PR #${pullRequestSummary.number}`)
   console.log(`  Created: ${pullRequestSummary.created_at}`)
-  console.log(`  Age: ${ageDays} day(s)`)
-
-  if (ageDays < quarantineDays) {
-    console.log(`  Waiting for quarantine (${ageDays} < ${quarantineDays} days)`)
-    continue
-  }
-
-  quarantinePassedCount += 1
-  console.log('  Quarantine passed')
 
   try {
     const pullRequest = await github.getPullRequest(pullRequestSummary.number)
@@ -68,6 +57,24 @@ for (const pullRequestSummary of dependabotPullRequests) {
       )
       continue
     }
+
+    const checkedAt = getApprovalCheckedAt(approvalComment.payload)
+    if (!checkedAt) {
+      console.log('  Skipping: latest approval signal has no valid checkedAt timestamp')
+      continue
+    }
+
+    const ageDays = calculateAgeDays(checkedAt)
+    console.log(`  Approved at: ${checkedAt}`)
+    console.log(`  Approval age: ${ageDays} day(s)`)
+
+    if (ageDays < quarantineDays) {
+      console.log(`  Waiting for quarantine (${ageDays} < ${quarantineDays} days since approval)`)
+      continue
+    }
+
+    quarantinePassedCount += 1
+    console.log('  Quarantine passed')
 
     if (pullRequest.auto_merge) {
       alreadyEnabledCount += 1
