@@ -1,16 +1,26 @@
 const APPROVAL_MARKER_PREFIX = '<!-- dependabot-automation:approval '
 
+export function getApprovalCheckedAt(payload) {
+  if (typeof payload?.checkedAt !== 'string') {
+    return null
+  }
+
+  if (Number.isNaN(Date.parse(payload.checkedAt))) {
+    return null
+  }
+
+  return payload.checkedAt
+}
+
 export function resolveApprovalCheckedAt({
   existingPayload,
   sha,
   fallbackCheckedAt = new Date().toISOString(),
 }) {
-  if (
-    existingPayload?.sha === sha &&
-    typeof existingPayload.checkedAt === 'string' &&
-    !Number.isNaN(Date.parse(existingPayload.checkedAt))
-  ) {
-    return existingPayload.checkedAt
+  const checkedAt = getApprovalCheckedAt(existingPayload)
+
+  if (existingPayload?.sha === sha && checkedAt) {
+    return checkedAt
   }
 
   return fallbackCheckedAt

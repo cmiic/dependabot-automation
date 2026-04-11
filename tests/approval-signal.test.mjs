@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   buildApprovalComment,
+  getApprovalCheckedAt,
   isAutomationApprovalComment,
   parseApprovalComment,
   resolveApprovalCheckedAt,
@@ -63,4 +64,11 @@ test('resolveApprovalCheckedAt resets the timestamp for a new sha', () => {
   })
 
   assert.equal(checkedAt, '2026-04-10T12:00:00.000Z')
+})
+
+test('getApprovalCheckedAt rejects missing or invalid timestamps', () => {
+  assert.equal(getApprovalCheckedAt({}), null)
+  assert.equal(getApprovalCheckedAt({ checkedAt: 123 }), null)
+  assert.equal(getApprovalCheckedAt({ checkedAt: 'not-a-date' }), null)
+  assert.equal(getApprovalCheckedAt({ checkedAt: '2026-04-10T12:00:00.000Z' }), '2026-04-10T12:00:00.000Z')
 })

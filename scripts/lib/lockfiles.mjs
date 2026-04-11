@@ -43,11 +43,14 @@ export function extractDependencies(lockfile) {
 }
 
 function getErrorMessage(error) {
-  if (error instanceof Error) {
-    return error.message
+  const message = error instanceof Error ? error.message : String(error)
+  const normalized = message.replace(/\s+/g, ' ').trim()
+
+  if (normalized.length <= 240) {
+    return normalized
   }
 
-  return String(error)
+  return `${normalized.slice(0, 237)}...`
 }
 
 function isMissingPathInBase(error) {

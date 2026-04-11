@@ -13,10 +13,6 @@ inputs:
     description: Comma-separated Dependabot ecosystems allowed for auto-merge.
     required: false
     default: github-actions,npm_and_yarn,devcontainers,docker
-  merge-method:
-    description: Auto-merge method. Supported values are merge, squash, and rebase.
-    required: false
-    default: merge
   skip-commit-verification:
     description: Forwarded to dependabot/fetch-metadata.
     required: false

@@ -90,12 +90,15 @@ Shared inputs:
 
 - `github-token`: required
 - `quarantine-days`: default `3`
-- `merge-method`: default `merge`
 
 `merge`-only inputs:
 
 - `allowed-ecosystems`: default `github-actions,npm_and_yarn,devcontainers,docker`
 - `skip-commit-verification`: default `true`
+
+`cron`-only inputs:
+
+- `merge-method`: default `merge`
 
 ## Outputs
 

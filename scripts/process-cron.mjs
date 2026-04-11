@@ -1,7 +1,7 @@
 import { appendFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 
-import { parseApprovalComment } from './lib/approval-signal.mjs'
+import { getApprovalCheckedAt, parseApprovalComment } from './lib/approval-signal.mjs'
 import { GitHubClient, calculateAgeDays, normalizeMergeMethod } from './lib/github.mjs'
 
 function setOutput(name, value) {
@@ -58,8 +58,14 @@ for (const pullRequestSummary of dependabotPullRequests) {
       continue
     }
 
-    const ageDays = calculateAgeDays(approvalComment.payload.checkedAt)
-    console.log(`  Approved at: ${approvalComment.payload.checkedAt}`)
+    const checkedAt = getApprovalCheckedAt(approvalComment.payload)
+    if (!checkedAt) {
+      console.log('  Skipping: latest approval signal has no valid checkedAt timestamp')
+      continue
+    }
+
+    const ageDays = calculateAgeDays(checkedAt)
+    console.log(`  Approved at: ${checkedAt}`)
     console.log(`  Approval age: ${ageDays} day(s)`)
 
     if (ageDays < quarantineDays) {
