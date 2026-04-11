@@ -99,6 +99,7 @@ Shared inputs:
 - `allowed-ecosystems`: default `github-actions,npm_and_yarn,devcontainers,docker`
 - `skip-commit-verification`: default `false`
   Setting this to `true` weakens the branch-tampering defense and should be treated as an explicit trust decision.
+  Warning: Setting `skip-commit-verification: true` allows tampered PRs to be merged if an attacker hides malicious code inside expected files (e.g., modifying `package.json` scripts or adding malicious steps to `.github/workflows/*.yml`).
 
 `cron`-only inputs:
 
