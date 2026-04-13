@@ -10,7 +10,7 @@ inputs:
     required: false
     default: "3"
   allowed-ecosystems:
-    description: Comma-separated Dependabot ecosystems allowed for auto-merge.
+    description: Comma-separated package ecosystems allowed for auto-merge. Use the values returned by dependabot/fetch-metadata (e.g. github_actions, not the dependabot.yml form github-actions).
     required: false
     default: github_actions,npm_and_yarn,devcontainers,docker
   skip-commit-verification:

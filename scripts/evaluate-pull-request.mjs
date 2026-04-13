@@ -101,17 +101,23 @@ if (candidate && packageEcosystem === 'github_actions') {
   if (!trustedActionOwners.has('*')) {
     const owners = extractActionOwners(dependencyNames)
 
-    const untrustedOwners = [...owners].filter((owner) => !trustedActionOwners.has(owner))
-
-    if (untrustedOwners.length > 0) {
+    if (owners.size === 0) {
       candidate = false
-      reason = 'untrusted-action-owner'
-      console.log('  Untrusted action owners:')
-      for (const owner of untrustedOwners) {
-        console.log(`    - ${owner}`)
-      }
+      reason = 'missing-action-dependency-names'
+      console.log('  Trusted action owners check failed: no dependency names available.')
     } else {
-      console.log(`  All action owners trusted: ${[...owners].join(', ')}`)
+      const untrustedOwners = [...owners].filter((owner) => !trustedActionOwners.has(owner))
+
+      if (untrustedOwners.length > 0) {
+        candidate = false
+        reason = 'untrusted-action-owner'
+        console.log('  Untrusted action owners:')
+        for (const owner of untrustedOwners) {
+          console.log(`    - ${owner}`)
+        }
+      } else {
+        console.log(`  All action owners trusted: ${[...owners].join(', ')}`)
+      }
     }
   } else {
     console.log('  Trusted action owners check skipped (wildcard).')
