@@ -82,7 +82,7 @@ function isDockerFile(filePath) {
 
 const ECOSYSTEM_FILE_MATCHERS = new Map([
   ['npm_and_yarn', isNpmAndYarnFile],
-  ['github-actions', isGitHubActionsFile],
+  ['github_actions', isGitHubActionsFile],
   ['devcontainers', isDevcontainerFile],
   ['docker', isDockerFile],
 ])
@@ -102,6 +102,19 @@ export function listChangedFiles({ baseSha, headSha, cwd = process.cwd() }) {
     .split('\n')
     .map((line) => normalizePath(line.trim()))
     .filter(Boolean)
+}
+
+export function extractActionOwners(dependencyNames) {
+  if (!dependencyNames) return new Set()
+
+  return new Set(
+    dependencyNames
+      .split(',')
+      .map((name) => name.trim())
+      .filter(Boolean)
+      .map((name) => name.split('/')[0])
+      .filter(Boolean),
+  )
 }
 
 export function findUnexpectedFiles({ packageEcosystem, changedFiles }) {

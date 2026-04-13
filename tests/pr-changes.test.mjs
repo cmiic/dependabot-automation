@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { findUnexpectedFiles } from '../scripts/lib/pr-changes.mjs'
+import { extractActionOwners, findUnexpectedFiles } from '../scripts/lib/pr-changes.mjs'
 
 test('findUnexpectedFiles rejects non-manifest files for npm_and_yarn PRs', () => {
   const unexpectedFiles = findUnexpectedFiles({
@@ -17,9 +17,9 @@ test('findUnexpectedFiles rejects non-manifest files for npm_and_yarn PRs', () =
   assert.deepEqual(unexpectedFiles, ['src/server.js'])
 })
 
-test('findUnexpectedFiles allows workflow and action metadata updates for github-actions PRs', () => {
+test('findUnexpectedFiles allows workflow and action metadata updates for github_actions PRs', () => {
   const unexpectedFiles = findUnexpectedFiles({
-    packageEcosystem: 'github-actions',
+    packageEcosystem: 'github_actions',
     changedFiles: [
       '.github/workflows/ci.yml',
       'merge/action.yml',
@@ -30,9 +30,9 @@ test('findUnexpectedFiles allows workflow and action metadata updates for github
   assert.deepEqual(unexpectedFiles, [])
 })
 
-test('findUnexpectedFiles rejects unrelated files for github-actions PRs', () => {
+test('findUnexpectedFiles rejects unrelated files for github_actions PRs', () => {
   const unexpectedFiles = findUnexpectedFiles({
-    packageEcosystem: 'github-actions',
+    packageEcosystem: 'github_actions',
     changedFiles: ['.github/workflows/ci.yml', 'src/index.js'],
   })
 
@@ -74,4 +74,21 @@ test('findUnexpectedFiles returns all files for unknown ecosystems', () => {
   })
 
   assert.deepEqual(unexpectedFiles, changedFiles)
+})
+
+test('extractActionOwners extracts owner from a single action', () => {
+  assert.deepEqual(extractActionOwners('actions/checkout'), new Set(['actions']))
+})
+
+test('extractActionOwners extracts unique owners from multiple actions', () => {
+  assert.deepEqual(
+    extractActionOwners('actions/checkout, github/codeql-action, actions/setup-node'),
+    new Set(['actions', 'github']),
+  )
+})
+
+test('extractActionOwners returns empty set for empty input', () => {
+  assert.deepEqual(extractActionOwners(''), new Set())
+  assert.deepEqual(extractActionOwners(null), new Set())
+  assert.deepEqual(extractActionOwners(undefined), new Set())
 })
