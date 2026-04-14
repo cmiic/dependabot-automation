@@ -10,13 +10,17 @@ inputs:
     required: false
     default: "3"
   allowed-ecosystems:
-    description: Comma-separated Dependabot ecosystems allowed for auto-merge.
+    description: Comma-separated package ecosystems allowed for auto-merge. Use the values returned by dependabot/fetch-metadata (e.g. github_actions, not the dependabot.yml form github-actions).
     required: false
-    default: github-actions,npm_and_yarn,devcontainers,docker
+    default: github_actions,npm_and_yarn,devcontainers,docker
   skip-commit-verification:
     description: Forwarded to dependabot/fetch-metadata. Set to true only if you intentionally accept unsigned or non-Dependabot commits on bot PRs.
     required: false
     default: "false"
+  trusted-action-owners:
+    description: Comma-separated GitHub org/user names trusted for github_actions auto-merge. Use * to trust all owners.
+    required: false
+    default: actions,github,dependabot
 
 outputs:
   candidate:
@@ -109,6 +113,8 @@ runs:
         ALLOWED_ECOSYSTEMS: ${{ inputs.allowed-ecosystems }}
         METADATA_PACKAGE_ECOSYSTEM: ${{ steps.metadata.outputs.package-ecosystem }}
         METADATA_UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
+        METADATA_DEPENDENCY_NAMES: ${{ steps.metadata.outputs.dependency-names }}
+        TRUSTED_ACTION_OWNERS: ${{ inputs.trusted-action-owners }}
       run: node "$GITHUB_ACTION_PATH/../scripts/evaluate-pull-request.mjs"
 
     - id: result

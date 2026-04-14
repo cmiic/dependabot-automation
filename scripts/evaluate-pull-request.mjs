@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { buildApprovalComment, parseApprovalComment, resolveApprovalCheckedAt } from './lib/approval-signal.mjs'
 import { GitHubClient, calculateAgeDays, parseCsvList } from './lib/github.mjs'
 import { checkChangedLockfiles } from './lib/lockfiles.mjs'
-import { findUnexpectedFiles, listChangedFiles } from './lib/pr-changes.mjs'
+import { findUnexpectedFiles, listChangedFiles, extractActionOwners } from './lib/pr-changes.mjs'
 
 function setOutput(name, value) {
   const delimiter = `EOF_${randomUUID()}`
@@ -91,6 +91,36 @@ if (candidate) {
     for (const file of unexpectedFiles) {
       console.log(`    - ${file}`)
     }
+  }
+}
+
+if (candidate && packageEcosystem === 'github_actions') {
+  const trustedActionOwners = new Set(parseCsvList(process.env.TRUSTED_ACTION_OWNERS))
+  const dependencyNames = process.env.METADATA_DEPENDENCY_NAMES ?? ''
+
+  if (!trustedActionOwners.has('*')) {
+    const owners = extractActionOwners(dependencyNames)
+
+    if (owners.size === 0) {
+      candidate = false
+      reason = 'missing-action-dependency-names'
+      console.log('  Trusted action owners check failed: no dependency names available.')
+    } else {
+      const untrustedOwners = [...owners].filter((owner) => !trustedActionOwners.has(owner))
+
+      if (untrustedOwners.length > 0) {
+        candidate = false
+        reason = 'untrusted-action-owner'
+        console.log('  Untrusted action owners:')
+        for (const owner of untrustedOwners) {
+          console.log(`    - ${owner}`)
+        }
+      } else {
+        console.log(`  All action owners trusted: ${[...owners].join(', ')}`)
+      }
+    }
+  } else {
+    console.log('  Trusted action owners check skipped (wildcard).')
   }
 }
 
