@@ -3,7 +3,7 @@
 Two GitHub Actions for the Dependabot policy you have been maintaining in per-repo workflows:
 
 - `merge/` evaluates Dependabot pull requests when they open or change
-- `cron/` re-checks approved PRs and enables auto-merge after quarantine
+- `cron/` re-checks approved PRs and merges them directly after quarantine
 
 The split is intentional:
 
@@ -33,7 +33,8 @@ The cron action:
 - scans open Dependabot PRs directly
 - verifies the latest bot-authored approval comment is `approved` for the current PR head SHA
 - waits for the same quarantine period based on that approval comment timestamp
-- is the only action that enables auto-merge
+- merges the PR directly if all checks have passed
+- falls back to enabling auto-merge when direct merge is not yet possible (e.g. checks pending after a Dependabot rebase)
 
 ## Wrapper Workflows
 
@@ -122,6 +123,7 @@ Shared inputs:
 
 - `processed-count`
 - `quarantine-passed-count`
+- `merged-count`
 - `automerge-enabled-count`
 - `already-enabled-count`
 - `failed-count`

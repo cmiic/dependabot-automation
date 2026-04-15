@@ -2,7 +2,7 @@ import { appendFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 
 import { getApprovalCheckedAt, parseApprovalComment } from './lib/approval-signal.mjs'
-import { GitHubClient, calculateAgeDays, normalizeMergeMethod } from './lib/github.mjs'
+import { GitHubClient, GitHubRequestError, calculateAgeDays, normalizeMergeMethod } from './lib/github.mjs'
 
 function setOutput(name, value) {
   const delimiter = `EOF_${randomUUID()}`
@@ -21,6 +21,7 @@ console.log(`Found ${dependabotPullRequests.length} open Dependabot PR(s)`)
 
 let processedCount = 0
 let quarantinePassedCount = 0
+let mergedCount = 0
 let automergeEnabledCount = 0
 let alreadyEnabledCount = 0
 let failedCount = 0
@@ -78,20 +79,26 @@ for (const pullRequestSummary of dependabotPullRequests) {
 
     if (pullRequest.auto_merge) {
       alreadyEnabledCount += 1
-      console.log('  Auto-merge already enabled')
+      console.log('  Auto-merge already enabled, skipping')
       continue
     }
 
-    await github.enablePullRequestAutoMerge({
-      pullRequestId: pullRequest.node_id,
-      mergeMethod,
-    })
-
-    automergeEnabledCount += 1
-    console.log('  Auto-merge enabled')
+    try {
+      await github.mergePullRequest(pullRequestSummary.number, mergeMethod)
+      mergedCount += 1
+      console.log('  Merged')
+    } catch (mergeError) {
+      console.log(`  Direct merge failed: ${mergeError.message}`)
+      await github.enablePullRequestAutoMerge({
+        pullRequestId: pullRequest.node_id,
+        mergeMethod,
+      })
+      automergeEnabledCount += 1
+      console.log('  Auto-merge enabled (checks likely pending)')
+    }
   } catch (error) {
     failedCount += 1
-    console.log(`  Failed to enable auto-merge: ${error.message}`)
+    console.log(`  Failed: ${error.message}`)
   }
 }
 
@@ -100,6 +107,7 @@ console.log('Done.')
 
 setOutput('processed-count', processedCount)
 setOutput('quarantine-passed-count', quarantinePassedCount)
+setOutput('merged-count', mergedCount)
 setOutput('automerge-enabled-count', automergeEnabledCount)
 setOutput('already-enabled-count', alreadyEnabledCount)
 setOutput('failed-count', failedCount)
