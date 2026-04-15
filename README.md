@@ -27,6 +27,7 @@ By default the PR action:
 - requires modern npm lockfiles with a `packages` object and treats new or unreadable lockfiles as manual review
 - upserts a bot-authored approval comment tied to the current PR head SHA
 - preserves the first evaluation timestamp for the current head SHA so quarantine cannot be bypassed by reruns
+- carries forward the quarantine timestamp across rebases when the dependency versions are unchanged
 
 The cron action:
 
@@ -132,7 +133,7 @@ Shared inputs:
 
 - Existing open PRs are safe for cron as soon as the `merge` action evaluates them for the current head SHA.
 - Cron requires the latest machine-written approval comment from `github-actions[bot]` to say `approved` for the current PR head SHA.
-- The quarantine timer is anchored to the approval comment timestamp for the current head SHA, not the PR creation time.
+- The quarantine timer is anchored to the first evaluation timestamp for the dependency versions being updated, not the PR creation time. Rebases that do not change the dependency versions preserve the original timer.
 - Wrapper workflows still own triggers and permissions. The repo only centralizes the behavior.
 - The `merge` wrapper needs `issues: write` because approval comments are issue comments on pull requests.
 - The `cron` wrapper needs `issues: read` so it can inspect approval comments.
