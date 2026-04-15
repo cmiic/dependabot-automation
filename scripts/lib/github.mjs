@@ -123,6 +123,12 @@ export class GitHubClient {
     return data.enablePullRequestAutoMerge.pullRequest
   }
 
+  async mergePullRequest(number, mergeMethod) {
+    return this.request('PUT', `/repos/${this.owner}/${this.repo}/pulls/${number}/merge`, {
+      merge_method: mergeMethod.toLowerCase(),
+    })
+  }
+
   async listOpenPullRequests() {
     const items = []
 

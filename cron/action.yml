@@ -1,5 +1,5 @@
 name: Dependabot Automerge (Cron)
-description: Re-check aged Dependabot PRs with approval signals and enable auto-merge after quarantine.
+description: Re-check aged Dependabot PRs with approval signals and merge or enable auto-merge after quarantine.
 
 inputs:
   github-token:
@@ -21,14 +21,17 @@ outputs:
   quarantine-passed-count:
     description: Number of inspected PRs old enough for auto-merge.
     value: ${{ steps.run.outputs.quarantine-passed-count }}
+  merged-count:
+    description: Number of PRs merged in this run.
+    value: ${{ steps.run.outputs.merged-count }}
   automerge-enabled-count:
-    description: Number of PRs whose auto-merge was enabled in this run.
+    description: Number of PRs where auto-merge was enabled because direct merge was not yet possible.
     value: ${{ steps.run.outputs.automerge-enabled-count }}
   already-enabled-count:
     description: Number of PRs that already had auto-merge enabled.
     value: ${{ steps.run.outputs.already-enabled-count }}
   failed-count:
-    description: Number of PRs for which enabling auto-merge failed.
+    description: Number of PRs for which both merge and auto-merge failed.
     value: ${{ steps.run.outputs.failed-count }}
 
 runs:
