@@ -1,5 +1,32 @@
 const APPROVAL_MARKER_PREFIX = '<!-- dependabot-automation:approval '
 
+export function buildDependencyKey(updatedDependenciesJson) {
+  if (!updatedDependenciesJson) {
+    return null
+  }
+
+  let parsed
+  try {
+    parsed = JSON.parse(updatedDependenciesJson)
+  } catch {
+    return null
+  }
+
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    return null
+  }
+
+  if (parsed.some((dep) => typeof dep?.dependencyName !== 'string')) {
+    return null
+  }
+
+  const entries = parsed
+    .map((dep) => `${dep.dependencyName}:${dep.prevVersion ?? ''}:${dep.newVersion ?? ''}`)
+    .sort()
+
+  return entries.join(',')
+}
+
 export function getApprovalCheckedAt(payload) {
   if (typeof payload?.checkedAt !== 'string') {
     return null
@@ -15,11 +42,20 @@ export function getApprovalCheckedAt(payload) {
 export function resolveApprovalCheckedAt({
   existingPayload,
   sha,
+  dependencyKey = null,
   fallbackCheckedAt = new Date().toISOString(),
 }) {
   const checkedAt = getApprovalCheckedAt(existingPayload)
 
-  if (existingPayload?.sha === sha && checkedAt) {
+  if (!checkedAt) {
+    return fallbackCheckedAt
+  }
+
+  if (existingPayload?.sha === sha) {
+    return checkedAt
+  }
+
+  if (dependencyKey && existingPayload?.dependencyKey === dependencyKey && existingPayload?.status === 'approved') {
     return checkedAt
   }
 
@@ -33,6 +69,7 @@ export function buildApprovalComment({
   packageEcosystem,
   updateType,
   lockfileStatus,
+  dependencyKey = null,
   checkedAt = new Date().toISOString(),
 }) {
   const payload = JSON.stringify({
@@ -42,6 +79,7 @@ export function buildApprovalComment({
     packageEcosystem,
     updateType,
     lockfileStatus,
+    dependencyKey,
     checkedAt,
   })
 

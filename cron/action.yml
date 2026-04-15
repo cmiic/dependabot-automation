@@ -19,7 +19,7 @@ outputs:
     description: Number of open Dependabot PRs inspected.
     value: ${{ steps.run.outputs.processed-count }}
   quarantine-passed-count:
-    description: Number of inspected PRs old enough for auto-merge.
+    description: Number of inspected PRs old enough to merge or enable auto-merge.
     value: ${{ steps.run.outputs.quarantine-passed-count }}
   merged-count:
     description: Number of PRs merged in this run.

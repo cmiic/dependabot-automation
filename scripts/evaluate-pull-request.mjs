@@ -1,7 +1,7 @@
 import { appendFileSync, readFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 
-import { buildApprovalComment, parseApprovalComment, resolveApprovalCheckedAt } from './lib/approval-signal.mjs'
+import { buildApprovalComment, buildDependencyKey, parseApprovalComment, resolveApprovalCheckedAt } from './lib/approval-signal.mjs'
 import { GitHubClient, calculateAgeDays, parseCsvList } from './lib/github.mjs'
 import { checkChangedLockfiles } from './lib/lockfiles.mjs'
 import { findUnexpectedFiles, listChangedFiles, extractActionOwners } from './lib/pr-changes.mjs'
@@ -47,6 +47,7 @@ const quarantineDays = Number.parseInt(process.env.QUARANTINE_DAYS ?? '3', 10)
 const allowedEcosystems = new Set(parseCsvList(process.env.ALLOWED_ECOSYSTEMS))
 const packageEcosystem = process.env.METADATA_PACKAGE_ECOSYSTEM ?? ''
 const updateType = process.env.METADATA_UPDATE_TYPE ?? ''
+const dependencyKey = buildDependencyKey(process.env.METADATA_UPDATED_DEPENDENCIES_JSON)
 
 outputs['package-ecosystem'] = packageEcosystem
 outputs['update-type'] = updateType
@@ -184,6 +185,7 @@ const existingApprovalComment = existingComments
 const checkedAt = resolveApprovalCheckedAt({
   existingPayload: existingApprovalComment?.payload,
   sha: pullRequest.head.sha,
+  dependencyKey,
 })
 const ageDays = calculateAgeDays(checkedAt)
 const quarantinePassed = ageDays >= quarantineDays
@@ -202,6 +204,7 @@ const approvalCommentBody = buildApprovalComment({
   packageEcosystem,
   updateType,
   lockfileStatus: outputs['lockfile-status'],
+  dependencyKey,
   checkedAt,
 })
 
