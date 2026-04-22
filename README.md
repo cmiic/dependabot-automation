@@ -34,8 +34,10 @@ The cron action:
 - scans open Dependabot PRs directly
 - verifies the latest bot-authored approval comment is `approved` for the current PR head SHA
 - waits for the same quarantine period based on that approval comment timestamp
-- merges the PR directly if all checks have passed
-- falls back to enabling auto-merge when direct merge is not yet possible (e.g. checks pending after a Dependabot rebase)
+- processes candidates in approval-age order (oldest-approved first) so merges are deterministic
+- takes at most one advancing action per run on the oldest actionable candidate: direct merge (`clean`), request branch update (`behind`), or enable auto-merge (`blocked`/`unstable`); younger candidates are left for a future run
+- skips `dirty` (merge conflict) and `draft` candidates without holding up the queue, since those need human intervention
+- never enables auto-merge on a PR whose head SHA it has just changed — the `merge` action re-evaluates the rebased head and the next cron run validates approval before merging
 
 ## Wrapper Workflows
 
@@ -105,7 +107,7 @@ Shared inputs:
 
 `cron`-only inputs:
 
-- `merge-method`: default `merge`
+- `merge-method`: default `squash`
 
 ## Outputs
 
@@ -127,6 +129,7 @@ Shared inputs:
 - `merged-count`
 - `automerge-enabled-count`
 - `already-enabled-count`
+- `update-branch-count`
 - `failed-count`
 
 ## Notes

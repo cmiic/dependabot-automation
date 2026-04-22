@@ -12,7 +12,7 @@ inputs:
   merge-method:
     description: Auto-merge method. Supported values are merge, squash, and rebase.
     required: false
-    default: merge
+    default: squash
 
 outputs:
   processed-count:
@@ -30,8 +30,11 @@ outputs:
   already-enabled-count:
     description: Number of PRs that already had auto-merge enabled.
     value: ${{ steps.run.outputs.already-enabled-count }}
+  update-branch-count:
+    description: Number of PRs for which a branch update was requested because they fell behind the base branch.
+    value: ${{ steps.run.outputs.update-branch-count }}
   failed-count:
-    description: Number of PRs for which both merge and auto-merge failed.
+    description: Number of PRs for which an unexpected error occurred.
     value: ${{ steps.run.outputs.failed-count }}
 
 runs:
