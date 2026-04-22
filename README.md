@@ -35,9 +35,10 @@ The cron action:
 - verifies the latest bot-authored approval comment is `approved` for the current PR head SHA
 - waits for the same quarantine period based on that approval comment timestamp
 - processes candidates in approval-age order (oldest-approved first) so merges are deterministic
-- takes at most one advancing action per run on the oldest actionable candidate: direct merge (`clean`), request branch update (`behind`), or enable auto-merge (`blocked`/`unstable`); younger candidates are left for a future run
+- takes at most one advancing action per run on the oldest actionable candidate: direct merge (`clean`), post an `@dependabot rebase` comment (`behind`), or enable auto-merge (`blocked`/`unstable`); younger candidates are left for a future run
 - skips `dirty` (merge conflict) and `draft` candidates without holding up the queue, since those need human intervention
-- never enables auto-merge on a PR whose head SHA it has just changed — the `merge` action re-evaluates the rebased head and the next cron run validates approval before merging
+- asks Dependabot to rebase rather than updating the branch itself, so every commit on the PR stays authored and signed by Dependabot and the commit-verification invariant is preserved
+- rebase requests are idempotent per head SHA, so the cron does not spam `@dependabot rebase` if the branch hasn't moved
 
 ## Wrapper Workflows
 
@@ -79,7 +80,7 @@ on:
 
 permissions:
   contents: write
-  issues: read
+  issues: write
   pull-requests: write
 
 jobs:
@@ -129,7 +130,7 @@ Shared inputs:
 - `merged-count`
 - `automerge-enabled-count`
 - `already-enabled-count`
-- `update-branch-count`
+- `rebase-requested-count`
 - `failed-count`
 
 ## Notes
@@ -139,4 +140,5 @@ Shared inputs:
 - The quarantine timer is anchored to the first evaluation timestamp for the dependency versions being updated, not the PR creation time. Rebases that do not change the dependency versions preserve the original timer.
 - Wrapper workflows still own triggers and permissions. The repo only centralizes the behavior.
 - The `merge` wrapper needs `issues: write` because approval comments are issue comments on pull requests.
-- The `cron` wrapper needs `issues: read` so it can inspect approval comments.
+- The `cron` wrapper needs `issues: write` so it can read approval comments and post `@dependabot rebase` comments when PRs fall behind.
+- Rebases are eventually consistent — Dependabot picks up `@dependabot rebase` on its own schedule, so a stale PR typically takes at least two cron cycles to merge (one to request the rebase, one to merge after the merge action re-approves the new SHA). Increase cron frequency if that latency matters.

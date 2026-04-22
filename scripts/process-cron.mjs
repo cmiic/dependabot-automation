@@ -2,6 +2,7 @@ import { appendFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 
 import { getApprovalCheckedAt, parseApprovalComment } from './lib/approval-signal.mjs'
+import { buildRebaseComment, parseRebaseComment } from './lib/rebase-signal.mjs'
 import { GitHubClient, GitHubRequestError, calculateAgeDays, normalizeMergeMethod } from './lib/github.mjs'
 
 function setOutput(name, value) {
@@ -35,14 +36,6 @@ function isAutoMergeAlreadyEnabledError(error) {
   return errorMessageMatches(error, /auto[- ]?merge.*already|already has auto[- ]?merge/i)
 }
 
-function isBranchAlreadyCurrentError(error) {
-  return errorMessageMatches(error, /not behind|up to date/i)
-}
-
-function isMergeConflictError(error) {
-  return errorMessageMatches(error, /conflict|cannot merge|cannot be automatically merged/i)
-}
-
 const token = process.env.GITHUB_TOKEN
 const quarantineDays = Number.parseInt(process.env.QUARANTINE_DAYS ?? '3', 10)
 const mergeMethod = normalizeMergeMethod(process.env.MERGE_METHOD)
@@ -58,7 +51,7 @@ let quarantinePassedCount = 0
 let mergedCount = 0
 let automergeEnabledCount = 0
 let alreadyEnabledCount = 0
-let updateBranchCount = 0
+let rebaseRequestedCount = 0
 let failedCount = 0
 
 const candidates = []
@@ -114,7 +107,7 @@ for (const pullRequestSummary of dependabotPullRequests) {
     quarantinePassedCount += 1
     console.log(`  Quarantine passed (mergeable_state: ${pullRequest.mergeable_state ?? 'unknown'})`)
 
-    candidates.push({ pullRequest, checkedAt })
+    candidates.push({ pullRequest, checkedAt, comments })
   } catch (error) {
     failedCount += 1
     console.log(`  Failed: ${error.message}`)
@@ -125,7 +118,7 @@ candidates.sort((left, right) => Date.parse(left.checkedAt) - Date.parse(right.c
 
 let pipelineBusy = false
 
-for (const { pullRequest } of candidates) {
+for (const { pullRequest, comments } of candidates) {
   const number = pullRequest.number
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
   console.log(`PR #${number} (acting)`)
@@ -147,10 +140,8 @@ for (const { pullRequest } of candidates) {
           console.log(`  Could not disable existing auto-merge: ${disableError.message}`)
           throw disableError
         }
-        const outcome = await requestBranchUpdate(pullRequest, 'clearing stalled auto-merge')
-        if (outcome !== 'conflict') {
-          pipelineBusy = true
-        }
+        await requestDependabotRebase(pullRequest, comments, 'clearing stalled auto-merge')
+        pipelineBusy = true
       } else if (state === 'dirty') {
         console.log('  Auto-merge enabled but branch has conflicts; needs manual resolution')
       } else {
@@ -167,19 +158,15 @@ for (const { pullRequest } of candidates) {
       } catch (mergeError) {
         if (mergeError instanceof GitHubRequestError && (mergeError.status === 405 || mergeError.status === 409)) {
           console.log(`  Direct merge refused (${mergeError.status}): ${mergeError.data?.message ?? mergeError.message}`)
-          const outcome = await requestBranchUpdate(pullRequest, 'branch changed under us')
-          if (outcome !== 'conflict') {
-            pipelineBusy = true
-          }
+          await requestDependabotRebase(pullRequest, comments, 'branch changed under us')
+          pipelineBusy = true
         } else {
           throw mergeError
         }
       }
     } else if (state === 'behind') {
-      const outcome = await requestBranchUpdate(pullRequest, 'branch behind base')
-      if (outcome !== 'conflict') {
-        pipelineBusy = true
-      }
+      await requestDependabotRebase(pullRequest, comments, 'branch behind base')
+      pipelineBusy = true
     } else if (state === 'blocked' || state === 'unstable') {
       await enableAutoMerge(pullRequest, `checks pending (${state})`)
       pipelineBusy = true
@@ -206,27 +193,23 @@ setOutput('quarantine-passed-count', quarantinePassedCount)
 setOutput('merged-count', mergedCount)
 setOutput('automerge-enabled-count', automergeEnabledCount)
 setOutput('already-enabled-count', alreadyEnabledCount)
-setOutput('update-branch-count', updateBranchCount)
+setOutput('rebase-requested-count', rebaseRequestedCount)
 setOutput('failed-count', failedCount)
 
-async function requestBranchUpdate(pullRequest, reason) {
-  console.log(`  Updating branch (${reason})`)
-  try {
-    await github.updatePullRequestBranch(pullRequest.number, pullRequest.head.sha)
-    updateBranchCount += 1
-    console.log('  Branch update requested; next cron run will merge after re-approval')
-    return 'updated'
-  } catch (error) {
-    if (isMergeConflictError(error)) {
-      console.log(`  Branch update blocked by merge conflict; needs manual resolution`)
-      return 'conflict'
-    }
-    if (isBranchAlreadyCurrentError(error)) {
-      console.log(`  Branch already up to date: ${extractErrorMessages(error)[0] ?? error.message}`)
-      return 'already-current'
-    }
-    throw error
+async function requestDependabotRebase(pullRequest, comments, reason) {
+  const head = pullRequest.head.sha
+  const alreadyAsked = comments.some(
+    (comment) => comment.user?.login === 'github-actions[bot]' && parseRebaseComment(comment.body)?.sha === head
+  )
+
+  if (alreadyAsked) {
+    console.log(`  Rebase already requested for ${head.slice(0, 7)}; waiting for Dependabot`)
+    return
   }
+
+  console.log(`  Requesting @dependabot rebase (${reason})`)
+  await github.createIssueComment(pullRequest.number, buildRebaseComment(head))
+  rebaseRequestedCount += 1
 }
 
 async function enableAutoMerge(pullRequest, reason) {

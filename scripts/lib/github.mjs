@@ -148,12 +148,6 @@ export class GitHubClient {
     })
   }
 
-  async updatePullRequestBranch(number, expectedHeadSha) {
-    return this.request('PUT', `/repos/${this.owner}/${this.repo}/pulls/${number}/update-branch`, {
-      expected_head_sha: expectedHeadSha,
-    })
-  }
-
   async listOpenPullRequests() {
     const items = []
 
