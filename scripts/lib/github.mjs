@@ -7,7 +7,7 @@ export function parseCsvList(raw) {
     .filter(Boolean)
 }
 
-export function normalizeMergeMethod(raw = 'merge') {
+export function normalizeMergeMethod(raw = 'squash') {
   const normalized = String(raw).trim().toUpperCase()
 
   if (normalized === 'MERGE' || normalized === 'SQUASH' || normalized === 'REBASE') {
@@ -123,9 +123,34 @@ export class GitHubClient {
     return data.enablePullRequestAutoMerge.pullRequest
   }
 
+  async disablePullRequestAutoMerge(pullRequestId) {
+    const data = await this.graphql(
+      `
+        mutation DisablePullRequestAutoMerge($pullRequestId: ID!) {
+          disablePullRequestAutoMerge(input: { pullRequestId: $pullRequestId }) {
+            pullRequest {
+              number
+            }
+          }
+        }
+      `,
+      {
+        pullRequestId,
+      }
+    )
+
+    return data.disablePullRequestAutoMerge.pullRequest
+  }
+
   async mergePullRequest(number, mergeMethod) {
     return this.request('PUT', `/repos/${this.owner}/${this.repo}/pulls/${number}/merge`, {
       merge_method: mergeMethod.toLowerCase(),
+    })
+  }
+
+  async updatePullRequestBranch(number, expectedHeadSha) {
+    return this.request('PUT', `/repos/${this.owner}/${this.repo}/pulls/${number}/update-branch`, {
+      expected_head_sha: expectedHeadSha,
     })
   }
 
