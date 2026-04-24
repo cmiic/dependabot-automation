@@ -3,7 +3,7 @@ description: Re-check aged Dependabot PRs with approval signals and merge or ena
 
 inputs:
   github-token:
-    description: GitHub token with contents:write, pull-requests:write, and issues:write permissions.
+    description: GitHub token with contents:write, pull-requests:write, and issues:read permissions.
     required: true
   quarantine-days:
     description: Minimum approval age before auto-merge is enabled.
@@ -30,9 +30,6 @@ outputs:
   already-enabled-count:
     description: Number of PRs that already had auto-merge enabled.
     value: ${{ steps.run.outputs.already-enabled-count }}
-  rebase-requested-count:
-    description: Number of PRs for which an @dependabot rebase comment was posted because they fell behind the base branch.
-    value: ${{ steps.run.outputs.rebase-requested-count }}
   failed-count:
     description: Number of PRs for which an unexpected error occurred.
     value: ${{ steps.run.outputs.failed-count }}
