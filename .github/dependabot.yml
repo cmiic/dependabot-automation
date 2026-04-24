@@ -2,7 +2,10 @@ version: 2
 
 updates:
   - package-ecosystem: github-actions
-    directory: /
+    directories:
+      - /
+      - /cron
+      - /merge
     schedule:
       interval: daily
       time: "21:10"
