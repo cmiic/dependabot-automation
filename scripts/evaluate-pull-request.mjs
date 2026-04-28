@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { buildApprovalComment, buildDependencyKey, parseApprovalComment, resolveApprovalCheckedAt } from './lib/approval-signal.mjs'
 import { GitHubClient, calculateAgeDays, parseCsvList } from './lib/github.mjs'
 import { checkChangedLockfiles } from './lib/lockfiles.mjs'
+import { checkChangedPipRequirements } from './lib/pip-requirements.mjs'
 import { findUnexpectedFiles, listChangedFiles, extractActionOwners } from './lib/pr-changes.mjs'
 
 function setOutput(name, value) {
@@ -28,7 +29,13 @@ const outputs = {
   'package-ecosystem': '',
   'update-type': '',
   'age-days': '0',
+  'dependency-file-status': 'skipped',
   'lockfile-status': 'skipped',
+}
+
+function setDependencyFileStatus(status) {
+  outputs['dependency-file-status'] = status
+  outputs['lockfile-status'] = status
 }
 
 if (!pullRequest) {
@@ -133,7 +140,7 @@ if (candidate && packageEcosystem === 'npm_and_yarn') {
     headSha: pullRequest.head.sha,
   })
 
-  outputs['lockfile-status'] = lockfileResult.status
+  setDependencyFileStatus(lockfileResult.status)
 
   if (lockfileResult.changedFiles.length > 0) {
     console.log(`  Changed lockfiles: ${lockfileResult.changedFiles.join(', ')}`)
@@ -172,6 +179,45 @@ if (candidate && packageEcosystem === 'npm_and_yarn') {
   }
 }
 
+if (candidate && packageEcosystem === 'pip') {
+  console.log('  Checking changed pip requirements files for newly introduced dependencies...')
+
+  const requirementsResult = checkChangedPipRequirements({
+    baseSha: pullRequest.base.sha,
+    headSha: pullRequest.head.sha,
+  })
+
+  setDependencyFileStatus(requirementsResult.status)
+
+  if (requirementsResult.changedFiles.length > 0) {
+    console.log(`  Changed pip requirements files: ${requirementsResult.changedFiles.join(', ')}`)
+  } else {
+    console.log('  No changed pip requirements files found.')
+  }
+
+  for (const skippedFile of requirementsResult.skippedFiles) {
+    console.log(`  Note: ${skippedFile}`)
+  }
+
+  if (requirementsResult.errors.length > 0) {
+    candidate = false
+    reason = 'dependency-file-check-failed'
+    console.log('  Pip requirements check failed:')
+    for (const error of requirementsResult.errors) {
+      console.log(`    - ${error}`)
+    }
+  } else if (requirementsResult.newDependencies.length > 0) {
+    candidate = false
+    reason = 'new-dependencies'
+    console.log('  New dependencies detected:')
+    for (const dependency of requirementsResult.newDependencies) {
+      console.log(`    - ${dependency}`)
+    }
+  } else {
+    console.log('  No newly introduced dependencies detected.')
+  }
+}
+
 outputs.candidate = candidate ? 'true' : 'false'
 
 const github = new GitHubClient({ token })
@@ -203,6 +249,7 @@ const approvalCommentBody = buildApprovalComment({
   reason,
   packageEcosystem,
   updateType,
+  dependencyFileStatus: outputs['dependency-file-status'],
   lockfileStatus: outputs['lockfile-status'],
   dependencyKey,
   checkedAt,

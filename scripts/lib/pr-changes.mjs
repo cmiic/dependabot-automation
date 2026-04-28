@@ -48,6 +48,26 @@ function isNpmAndYarnFile(filePath) {
   return NPM_AND_YARN_BASENAMES.has(path.basename(filePath))
 }
 
+export function isPipRequirementsFile(filePath) {
+  const normalized = normalizePath(filePath)
+  const basename = path.basename(normalized).toLowerCase()
+
+  if (!/\.(txt|in)$/i.test(basename)) {
+    return false
+  }
+
+  if (normalized.startsWith('requirements/') || normalized.includes('/requirements/')) {
+    return true
+  }
+
+  return (
+    /^requirements.*\.(txt|in)$/i.test(basename) ||
+    /^.+-requirements\.(txt|in)$/i.test(basename) ||
+    /^constraints.*\.(txt|in)$/i.test(basename) ||
+    /^.+-constraints\.(txt|in)$/i.test(basename)
+  )
+}
+
 function isGitHubActionsFile(filePath) {
   const normalized = normalizePath(filePath)
   const basename = path.basename(normalized)
@@ -82,6 +102,7 @@ function isDockerFile(filePath) {
 
 const ECOSYSTEM_FILE_MATCHERS = new Map([
   ['npm_and_yarn', isNpmAndYarnFile],
+  ['pip', isPipRequirementsFile],
   ['github_actions', isGitHubActionsFile],
   ['devcontainers', isDevcontainerFile],
   ['docker', isDockerFile],

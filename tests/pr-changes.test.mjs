@@ -17,6 +17,32 @@ test('findUnexpectedFiles rejects non-manifest files for npm_and_yarn PRs', () =
   assert.deepEqual(unexpectedFiles, ['src/server.js'])
 })
 
+test('findUnexpectedFiles allows pip requirements and constraints files', () => {
+  const unexpectedFiles = findUnexpectedFiles({
+    packageEcosystem: 'pip',
+    changedFiles: [
+      'requirements.txt',
+      'requirements-dev.in',
+      'dev-requirements.txt',
+      'constraints.txt',
+      'base-constraints.in',
+      'requirements/prod.txt',
+      'services/api/requirements/base.in',
+    ],
+  })
+
+  assert.deepEqual(unexpectedFiles, [])
+})
+
+test('findUnexpectedFiles rejects non-requirements files for pip PRs', () => {
+  const unexpectedFiles = findUnexpectedFiles({
+    packageEcosystem: 'pip',
+    changedFiles: ['requirements.txt', 'pyproject.toml', 'setup.py', 'Pipfile', 'src/app.py'],
+  })
+
+  assert.deepEqual(unexpectedFiles, ['pyproject.toml', 'setup.py', 'Pipfile', 'src/app.py'])
+})
+
 test('findUnexpectedFiles allows workflow and action metadata updates for github_actions PRs', () => {
   const unexpectedFiles = findUnexpectedFiles({
     packageEcosystem: 'github_actions',

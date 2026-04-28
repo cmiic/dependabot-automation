@@ -68,17 +68,21 @@ export function buildApprovalComment({
   reason,
   packageEcosystem,
   updateType,
+  dependencyFileStatus,
   lockfileStatus,
   dependencyKey = null,
   checkedAt = new Date().toISOString(),
 }) {
+  const resolvedDependencyFileStatus = dependencyFileStatus || lockfileStatus || 'skipped'
+  const resolvedLockfileStatus = lockfileStatus || resolvedDependencyFileStatus
   const payload = JSON.stringify({
     status,
     sha,
     reason,
     packageEcosystem,
     updateType,
-    lockfileStatus,
+    dependencyFileStatus: resolvedDependencyFileStatus,
+    lockfileStatus: resolvedLockfileStatus,
     dependencyKey,
     checkedAt,
   })
@@ -95,7 +99,8 @@ export function buildApprovalComment({
     `- Reason: \`${reason}\``,
     `- Ecosystem: \`${packageEcosystem || 'unknown'}\``,
     `- Update type: \`${updateType || 'unknown'}\``,
-    `- Lockfile status: \`${lockfileStatus || 'skipped'}\``,
+    `- Dependency file status: \`${resolvedDependencyFileStatus}\``,
+    `- Lockfile status: \`${resolvedLockfileStatus}\``,
     `- Checked at: \`${checkedAt}\``,
   ].join('\n')
 }
