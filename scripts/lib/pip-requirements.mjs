@@ -115,24 +115,26 @@ export function parseRequirementLine(line, lineNumber = 1) {
   }
 }
 
-function increment(map, key) {
-  map.set(key, (map.get(key) ?? 0) + 1)
+function addComplexLine(map, complexLine) {
+  const lines = map.get(complexLine.content) ?? []
+  lines.push(complexLine)
+  map.set(complexLine.content, lines)
 }
 
-function decrementIfPresent(map, key) {
-  const count = map.get(key) ?? 0
+function removeComplexLine(map, content) {
+  const lines = map.get(content)
 
-  if (count === 0) {
-    return false
+  if (!lines?.length) {
+    return null
   }
 
-  if (count === 1) {
-    map.delete(key)
-  } else {
-    map.set(key, count - 1)
+  const complexLine = lines.shift()
+
+  if (lines.length === 0) {
+    map.delete(content)
   }
 
-  return true
+  return complexLine
 }
 
 export function extractRequirements(content) {
@@ -229,15 +231,21 @@ export function checkChangedPipRequirements({ baseSha, headSha, cwd = process.cw
 
     const baseRequirements = extractRequirements(baseContent)
     const headRequirements = extractRequirements(headContent)
-    const baseComplexLineCounts = new Map()
+    const unmatchedBaseComplexLines = new Map()
 
     for (const complexLine of baseRequirements.complexLines) {
-      increment(baseComplexLineCounts, complexLine.content)
+      addComplexLine(unmatchedBaseComplexLines, complexLine)
     }
 
     for (const complexLine of headRequirements.complexLines) {
-      if (!decrementIfPresent(baseComplexLineCounts, complexLine.content)) {
+      if (!removeComplexLine(unmatchedBaseComplexLines, complexLine.content)) {
         errors.push(`${file}:unsupported-requirement:${complexLine.lineNumber}:${complexLine.reason}`)
+      }
+    }
+
+    for (const complexLines of unmatchedBaseComplexLines.values()) {
+      for (const complexLine of complexLines) {
+        errors.push(`${file}:unsupported-requirement-removed:${complexLine.lineNumber}:${complexLine.reason}`)
       }
     }
 

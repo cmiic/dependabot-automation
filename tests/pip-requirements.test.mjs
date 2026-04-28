@@ -167,6 +167,7 @@ test('checkChangedPipRequirements fails closed for changed operators markers ext
     assert.deepEqual(result.newDependencies, [])
     assert.deepEqual(result.errors, [
       'requirements.txt:unsupported-requirement:4:range',
+      'requirements.txt:unsupported-requirement-removed:4:range',
       'requirements.txt:unsupported-requirement-change:django',
       'requirements.txt:unsupported-requirement-change:requests',
       'requirements.txt:unsupported-requirement-change:uvicorn',
@@ -244,6 +245,32 @@ test('checkChangedPipRequirements allows unchanged complex lines next to simple 
     assert.equal(result.status, 'clear')
     assert.deepEqual(result.newDependencies, [])
     assert.deepEqual(result.errors, [])
+  } finally {
+    rmSync(repoDir, { recursive: true, force: true })
+  }
+})
+
+test('checkChangedPipRequirements fails closed when complex requirement lines are removed', () => {
+  const repoDir = initRepo()
+
+  try {
+    const requirementsPath = path.join(repoDir, 'requirements.txt')
+
+    writeText(requirementsPath, '--index-url https://example.com/simple\nrequests==2.31.0\n')
+    git(repoDir, ['add', 'requirements.txt'])
+    git(repoDir, ['commit', '-m', 'base'])
+    const baseSha = git(repoDir, ['rev-parse', 'HEAD'])
+
+    writeText(requirementsPath, 'requests==2.32.0\n')
+    git(repoDir, ['commit', '-am', 'remove index option'])
+    const headSha = git(repoDir, ['rev-parse', 'HEAD'])
+
+    const result = checkChangedPipRequirements({ baseSha, headSha, cwd: repoDir })
+
+    assert.equal(result.ok, false)
+    assert.equal(result.status, 'error')
+    assert.deepEqual(result.newDependencies, [])
+    assert.deepEqual(result.errors, ['requirements.txt:unsupported-requirement-removed:1:option'])
   } finally {
     rmSync(repoDir, { recursive: true, force: true })
   }
