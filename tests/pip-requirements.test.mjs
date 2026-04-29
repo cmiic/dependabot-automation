@@ -34,14 +34,14 @@ function initRepo() {
 }
 
 test('parseRequirementLine canonicalizes package names and simple specifier metadata', () => {
-  assert.deepEqual(parseRequirementLine('Django_Rest.Framework[Standard]==3.15.1 ; python_version >= "3.11"'), {
+  assert.deepEqual(parseRequirementLine('Django_Rest.Framework[Security,Standard]==3.15.1 ; python_version >= "3.11"'), {
     type: 'requirement',
     name: 'django-rest-framework',
     operator: '==',
     version: '3.15.1',
-    extras: 'standard',
+    extras: 'security,standard',
     marker: 'python_version >= "3.11"',
-    key: 'django-rest-framework|standard|==|python_version >= "3.11"',
+    key: 'django-rest-framework|security,standard|==|python_version >= "3.11"',
     lineNumber: 1,
   })
 })
@@ -295,6 +295,32 @@ test('checkChangedPipRequirements treats newly added requirements files as manua
     assert.equal(result.ok, false)
     assert.equal(result.status, 'error')
     assert.deepEqual(result.errors, ['requirements.txt:missing-in-base'])
+  } finally {
+    rmSync(repoDir, { recursive: true, force: true })
+  }
+})
+
+test('checkChangedPipRequirements treats deleted requirements files as manual review', () => {
+  const repoDir = initRepo()
+
+  try {
+    const requirementsPath = path.join(repoDir, 'requirements.txt')
+
+    writeText(requirementsPath, 'requests==2.31.0\n')
+    git(repoDir, ['add', 'requirements.txt'])
+    git(repoDir, ['commit', '-m', 'base'])
+    const baseSha = git(repoDir, ['rev-parse', 'HEAD'])
+
+    git(repoDir, ['rm', 'requirements.txt'])
+    git(repoDir, ['commit', '-m', 'delete requirements'])
+    const headSha = git(repoDir, ['rev-parse', 'HEAD'])
+
+    const result = checkChangedPipRequirements({ baseSha, headSha, cwd: repoDir })
+
+    assert.equal(result.ok, false)
+    assert.equal(result.status, 'error')
+    assert.deepEqual(result.skippedFiles, [])
+    assert.deepEqual(result.errors, ['requirements.txt:missing-in-head'])
   } finally {
     rmSync(repoDir, { recursive: true, force: true })
   }

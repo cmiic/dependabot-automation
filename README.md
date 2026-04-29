@@ -21,6 +21,7 @@ By default the PR action:
 - requires modern npm lockfiles with a `packages` object and treats new or unreadable lockfiles as manual review
 - checks changed pip requirement files for newly introduced dependencies and complex requirement changes
 - fails closed on changed or newly added pip lines using VCS URLs, editable installs, local paths, direct URLs, includes, index options, unparseable syntax, multi-clause ranges, or changed markers/extras/operators
+- treats `pip` support as requirements/constraints-file-only; changes to `pyproject.toml`, `setup.py`, `setup.cfg`, `Pipfile`, `Pipfile.lock`, `poetry.lock`, or other Python packaging files require manual review
 - upserts a bot-authored approval comment tied to the current PR head SHA
 - preserves the first evaluation timestamp for the current head SHA, so quarantine is not reset by re-runs of the action
 - carries forward the quarantine timestamp across rebases when the dependency versions are unchanged

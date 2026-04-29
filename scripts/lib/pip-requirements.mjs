@@ -89,11 +89,11 @@ export function parseRequirementLine(line, lineNumber = 1) {
     return complexLine(content, lineNumber, 'direct-reference')
   }
 
-  if (content.includes(',')) {
+  const match = content.match(SIMPLE_REQUIREMENT_PATTERN)
+  if (!match && content.includes(',')) {
     return complexLine(content, lineNumber, 'range')
   }
 
-  const match = content.match(SIMPLE_REQUIREMENT_PATTERN)
   if (!match) {
     return complexLine(content, lineNumber, 'unparseable')
   }
@@ -205,7 +205,7 @@ export function checkChangedPipRequirements({ baseSha, headSha, cwd = process.cw
     const fullPath = path.join(cwd, file)
 
     if (!existsSync(fullPath)) {
-      skippedFiles.push(`${file}:missing-in-head`)
+      errors.push(`${file}:missing-in-head`)
       continue
     }
 
