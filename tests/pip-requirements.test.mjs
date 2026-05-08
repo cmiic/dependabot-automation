@@ -6,6 +6,7 @@ import path from 'node:path'
 import test from 'node:test'
 
 import {
+  classifyChangedPipFiles,
   checkChangedPipRequirements,
   extractRequirements,
   parseRequirementLine,
@@ -55,6 +56,60 @@ Requests==2.31.0 # via app
 
   assert.deepEqual([...requirements.dependencies], ['requests'])
   assert.deepEqual(requirements.complexLines, [])
+})
+
+test('classifyChangedPipFiles allows env-specific requirements directory files with requirement content', () => {
+  const repoDir = initRepo()
+
+  try {
+    const prodRequirementsPath = path.join(repoDir, 'requirements/prod.txt')
+    const nestedRequirementsPath = path.join(repoDir, 'services/api/requirements/base.in')
+
+    writeText(prodRequirementsPath, 'requests==2.31.0\n')
+    writeText(nestedRequirementsPath, '--index-url https://example.com/simple\n')
+    git(repoDir, ['add', 'requirements/prod.txt', 'services/api/requirements/base.in'])
+    git(repoDir, ['commit', '-m', 'base'])
+    const baseSha = git(repoDir, ['rev-parse', 'HEAD'])
+
+    writeText(prodRequirementsPath, 'requests==2.32.0\n')
+    writeText(nestedRequirementsPath, '--index-url https://example.com/simple\nurllib3==2.2.0\n')
+    git(repoDir, ['commit', '-am', 'update requirements directory files'])
+    const headSha = git(repoDir, ['rev-parse', 'HEAD'])
+
+    const result = classifyChangedPipFiles({ baseSha, headSha, cwd: repoDir })
+
+    assert.deepEqual(result.changedFiles, ['requirements/prod.txt', 'services/api/requirements/base.in'])
+    assert.deepEqual(result.unexpectedFiles, [])
+  } finally {
+    rmSync(repoDir, { recursive: true, force: true })
+  }
+})
+
+test('classifyChangedPipFiles rejects non-requirement text files under requirements directories', () => {
+  const repoDir = initRepo()
+
+  try {
+    const notesPath = path.join(repoDir, 'requirements/notes.txt')
+    const requirementsPath = path.join(repoDir, 'requirements/prod.txt')
+
+    writeText(notesPath, 'deployment notes\n')
+    writeText(requirementsPath, 'requests==2.31.0\n')
+    git(repoDir, ['add', 'requirements/notes.txt', 'requirements/prod.txt'])
+    git(repoDir, ['commit', '-m', 'base'])
+    const baseSha = git(repoDir, ['rev-parse', 'HEAD'])
+
+    writeText(notesPath, 'deployment notes updated\n')
+    writeText(requirementsPath, 'requests==2.32.0\n')
+    git(repoDir, ['commit', '-am', 'update requirements directory files'])
+    const headSha = git(repoDir, ['rev-parse', 'HEAD'])
+
+    const result = classifyChangedPipFiles({ baseSha, headSha, cwd: repoDir })
+
+    assert.deepEqual(result.changedFiles, ['requirements/prod.txt'])
+    assert.deepEqual(result.unexpectedFiles, ['requirements/notes.txt'])
+  } finally {
+    rmSync(repoDir, { recursive: true, force: true })
+  }
 })
 
 test('checkChangedPipRequirements allows version-only updates for simple requirement lines', () => {
@@ -172,6 +227,45 @@ test('checkChangedPipRequirements fails closed for changed operators markers ext
       'requirements.txt:unsupported-requirement-change:requests',
       'requirements.txt:unsupported-requirement-change:uvicorn',
     ])
+  } finally {
+    rmSync(repoDir, { recursive: true, force: true })
+  }
+})
+
+test('checkChangedPipRequirements fails closed when one of multiple requirement variants is removed', () => {
+  const repoDir = initRepo()
+
+  try {
+    const requirementsPath = path.join(repoDir, 'requirements.txt')
+
+    writeText(
+      requirementsPath,
+      [
+        'requests==2.31.0',
+        'requests==2.31.0; python_version < "3.12"',
+        '',
+      ].join('\n')
+    )
+    git(repoDir, ['add', 'requirements.txt'])
+    git(repoDir, ['commit', '-m', 'base'])
+    const baseSha = git(repoDir, ['rev-parse', 'HEAD'])
+
+    writeText(
+      requirementsPath,
+      [
+        'requests==2.32.0',
+        '',
+      ].join('\n')
+    )
+    git(repoDir, ['commit', '-am', 'remove variant'])
+    const headSha = git(repoDir, ['rev-parse', 'HEAD'])
+
+    const result = checkChangedPipRequirements({ baseSha, headSha, cwd: repoDir })
+
+    assert.equal(result.ok, false)
+    assert.equal(result.status, 'error')
+    assert.deepEqual(result.newDependencies, [])
+    assert.deepEqual(result.errors, ['requirements.txt:unsupported-requirement-change:requests'])
   } finally {
     rmSync(repoDir, { recursive: true, force: true })
   }

@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { buildApprovalComment, buildDependencyKey, parseApprovalComment, resolveApprovalCheckedAt } from './lib/approval-signal.mjs'
 import { GitHubClient, calculateAgeDays, parseCsvList } from './lib/github.mjs'
 import { checkChangedLockfiles } from './lib/lockfiles.mjs'
-import { checkChangedPipRequirements } from './lib/pip-requirements.mjs'
+import { checkChangedPipRequirements, classifyChangedPipFiles } from './lib/pip-requirements.mjs'
 import { findUnexpectedFiles, listChangedFiles, extractActionOwners } from './lib/pr-changes.mjs'
 
 function setOutput(name, value) {
@@ -87,10 +87,17 @@ if (candidate) {
     baseSha: pullRequest.base.sha,
     headSha: pullRequest.head.sha,
   })
-  const unexpectedFiles = findUnexpectedFiles({
-    packageEcosystem,
-    changedFiles,
-  })
+  const unexpectedFiles =
+    packageEcosystem === 'pip'
+      ? classifyChangedPipFiles({
+          baseSha: pullRequest.base.sha,
+          headSha: pullRequest.head.sha,
+          changedFiles,
+        }).unexpectedFiles
+      : findUnexpectedFiles({
+          packageEcosystem,
+          changedFiles,
+        })
 
   if (unexpectedFiles.length > 0) {
     candidate = false

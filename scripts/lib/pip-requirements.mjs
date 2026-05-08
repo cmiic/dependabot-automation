@@ -6,6 +6,9 @@ import { isPipRequirementsFile, listChangedFiles, pathExistsInGitRevision, runGi
 const SIMPLE_REQUIREMENT_PATTERN =
   /^([A-Za-z0-9][A-Za-z0-9._-]*)(\s*\[[A-Za-z0-9._,\-\s]+\])?\s*(===|==|~=|!=|<=|>=|<|>)\s*([^,;\s\\]+)\s*(?:;\s*(.+))?$/
 
+const PIP_REQUIREMENTS_BASENAME_PATTERN =
+  /^(requirements.*|.+-requirements|constraints.*|.+-constraints)\.(txt|in)$/i
+
 function normalizePackageName(name) {
   return name.toLowerCase().replace(/[-_.]+/g, '-')
 }
@@ -160,6 +163,76 @@ function findComplexRequirementLineErrors(file, baseComplexLines, headComplexLin
   return errors
 }
 
+function setsDiffer(left, right) {
+  if (left.size !== right.size) {
+    return true
+  }
+
+  for (const item of left) {
+    if (!right.has(item)) {
+      return true
+    }
+  }
+
+  return false
+}
+
+function normalizePath(filePath) {
+  return filePath.replace(/\\/g, '/')
+}
+
+function hasRecognizedPipRequirementsBasename(filePath) {
+  return PIP_REQUIREMENTS_BASENAME_PATTERN.test(path.basename(normalizePath(filePath)).toLowerCase())
+}
+
+function isRequirementsDirectoryFile(filePath) {
+  const normalized = normalizePath(filePath)
+  return normalized.startsWith('requirements/') || normalized.includes('/requirements/')
+}
+
+function isAmbiguousRequirementsDirectoryFile(filePath) {
+  const normalized = normalizePath(filePath)
+  const basename = path.basename(normalized).toLowerCase()
+
+  if (!/\.(txt|in)$/i.test(basename)) {
+    return false
+  }
+
+  return isRequirementsDirectoryFile(normalized) && !hasRecognizedPipRequirementsBasename(normalized)
+}
+
+function hasRecognizedRequirementContent(content) {
+  return content.split('\n').some((line, index) => {
+    const parsed = parseRequirementLine(line, index + 1)
+
+    return parsed.type === 'requirement' || (parsed.type === 'complex' && parsed.reason !== 'unparseable')
+  })
+}
+
+function isSupportedAmbiguousPipFile({ file, baseSha, cwd }) {
+  const fullPath = path.join(cwd, file)
+
+  if (existsSync(fullPath)) {
+    try {
+      if (hasRecognizedRequirementContent(readFileSync(fullPath, 'utf8'))) {
+        return true
+      }
+    } catch {
+      return false
+    }
+  }
+
+  if (!pathExistsInGitRevision({ revision: baseSha, filePath: file, cwd })) {
+    return false
+  }
+
+  try {
+    return hasRecognizedRequirementContent(runGit(['show', `${baseSha}:${file}`], cwd))
+  } catch {
+    return false
+  }
+}
+
 export function extractRequirements(content) {
   const dependencies = new Set()
   const requirementKeysByName = new Map()
@@ -202,11 +275,36 @@ function getErrorMessage(error) {
   return `${normalized.slice(0, 237)}...`
 }
 
-export function findChangedPipRequirementFiles({ baseSha, headSha, cwd = process.cwd() }) {
-  const changedFiles = listChangedFiles({ baseSha, headSha, cwd })
+export function classifyChangedPipFiles({ baseSha, headSha, changedFiles, cwd = process.cwd() }) {
+  const allChangedFiles = changedFiles ?? listChangedFiles({ baseSha, headSha, cwd })
+  const unexpectedFiles = []
+  const pipChangedFiles = []
+
+  for (const file of allChangedFiles) {
+    if (!isPipRequirementsFile(file)) {
+      unexpectedFiles.push(file)
+      continue
+    }
+
+    if (isAmbiguousRequirementsDirectoryFile(file) && !isSupportedAmbiguousPipFile({ file, baseSha, cwd })) {
+      unexpectedFiles.push(file)
+      continue
+    }
+
+    pipChangedFiles.push(file)
+  }
 
   return {
-    changedFiles: changedFiles.filter(isPipRequirementsFile),
+    changedFiles: pipChangedFiles,
+    unexpectedFiles,
+  }
+}
+
+export function findChangedPipRequirementFiles({ baseSha, headSha, changedFiles, cwd = process.cwd() }) {
+  const result = classifyChangedPipFiles({ baseSha, headSha, changedFiles, cwd })
+
+  return {
+    changedFiles: result.changedFiles,
   }
 }
 
@@ -257,10 +355,8 @@ export function checkChangedPipRequirements({ baseSha, headSha, cwd = process.cw
       const baseKeys = baseRequirements.requirementKeysByName.get(dependency) ?? new Set()
       const headKeys = headRequirements.requirementKeysByName.get(dependency) ?? new Set()
 
-      for (const headKey of headKeys) {
-        if (!baseKeys.has(headKey)) {
-          errors.push(`${file}:unsupported-requirement-change:${dependency}`)
-        }
+      if (setsDiffer(baseKeys, headKeys)) {
+        errors.push(`${file}:unsupported-requirement-change:${dependency}`)
       }
     }
   }
