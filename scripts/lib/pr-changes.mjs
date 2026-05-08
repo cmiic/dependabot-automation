@@ -48,6 +48,12 @@ function isNpmAndYarnFile(filePath) {
   return NPM_AND_YARN_BASENAMES.has(path.basename(filePath))
 }
 
+function isUvFile(filePath) {
+  const basename = path.basename(normalizePath(filePath))
+
+  return basename === 'pyproject.toml' || basename === 'uv.lock'
+}
+
 export function isPipRequirementsFile(filePath) {
   const normalized = normalizePath(filePath)
   const basename = path.basename(normalized).toLowerCase()
@@ -102,6 +108,7 @@ function isDockerFile(filePath) {
 
 const ECOSYSTEM_FILE_MATCHERS = new Map([
   ['npm_and_yarn', isNpmAndYarnFile],
+  ['uv', isUvFile],
   ['pip', isPipRequirementsFile],
   ['github_actions', isGitHubActionsFile],
   ['devcontainers', isDevcontainerFile],

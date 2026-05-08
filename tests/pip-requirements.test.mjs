@@ -7,6 +7,7 @@ import test from 'node:test'
 
 import {
   checkChangedPipRequirements,
+  classifyChangedPipFiles,
   extractRequirements,
   parseRequirementLine,
 } from '../scripts/lib/pip-requirements.mjs'
@@ -127,7 +128,7 @@ test('checkChangedPipRequirements reports newly introduced dependencies', () => 
   }
 })
 
-test('checkChangedPipRequirements allows dependency removals', () => {
+test('checkChangedPipRequirements treats dependency removals as manual review', () => {
   const repoDir = initRepo()
 
   try {
@@ -157,16 +158,16 @@ test('checkChangedPipRequirements allows dependency removals', () => {
 
     const result = checkChangedPipRequirements({ baseSha, headSha, cwd: repoDir })
 
-    assert.equal(result.ok, true)
-    assert.equal(result.status, 'clear')
+    assert.equal(result.ok, false)
+    assert.equal(result.status, 'error')
     assert.deepEqual(result.newDependencies, [])
-    assert.deepEqual(result.errors, [])
+    assert.deepEqual(result.errors, ['requirements.txt:dependency-removed:django'])
   } finally {
     rmSync(repoDir, { recursive: true, force: true })
   }
 })
 
-test('checkChangedPipRequirements ignores changed operators markers extras and ranges', () => {
+test('checkChangedPipRequirements treats changed operators markers and extras as manual review', () => {
   const repoDir = initRepo()
 
   try {
@@ -178,7 +179,6 @@ test('checkChangedPipRequirements ignores changed operators markers extras and r
         'requests==2.31.0',
         'django>=4.2; python_version >= "3.11"',
         'uvicorn[standard]~=0.28.0',
-        'flask>=2,<3',
         '',
       ].join('\n')
     )
@@ -192,7 +192,6 @@ test('checkChangedPipRequirements ignores changed operators markers extras and r
         'requests>=2.32.0',
         'django>=4.3; python_version >= "3.12"',
         'uvicorn[watchfiles]~=0.29.0',
-        'flask>=2,<4',
         '',
       ].join('\n')
     )
@@ -201,16 +200,49 @@ test('checkChangedPipRequirements ignores changed operators markers extras and r
 
     const result = checkChangedPipRequirements({ baseSha, headSha, cwd: repoDir })
 
-    assert.equal(result.ok, true)
-    assert.equal(result.status, 'clear')
+    assert.equal(result.ok, false)
+    assert.equal(result.status, 'error')
     assert.deepEqual(result.newDependencies, [])
-    assert.deepEqual(result.errors, [])
+    assert.deepEqual(result.errors, [
+      'requirements.txt:requirement-variants-changed:django',
+      'requirements.txt:requirement-variants-changed:requests',
+      'requirements.txt:requirement-variants-changed:uvicorn',
+    ])
   } finally {
     rmSync(repoDir, { recursive: true, force: true })
   }
 })
 
-test('checkChangedPipRequirements allows removing one of multiple requirement variants', () => {
+test('checkChangedPipRequirements treats changed range requirements as manual review', () => {
+  const repoDir = initRepo()
+
+  try {
+    const requirementsPath = path.join(repoDir, 'requirements.txt')
+
+    writeText(requirementsPath, 'flask>=2,<3\n')
+    git(repoDir, ['add', 'requirements.txt'])
+    git(repoDir, ['commit', '-m', 'base'])
+    const baseSha = git(repoDir, ['rev-parse', 'HEAD'])
+
+    writeText(requirementsPath, 'flask>=2,<4\n')
+    git(repoDir, ['commit', '-am', 'change range'])
+    const headSha = git(repoDir, ['rev-parse', 'HEAD'])
+
+    const result = checkChangedPipRequirements({ baseSha, headSha, cwd: repoDir })
+
+    assert.equal(result.ok, false)
+    assert.equal(result.status, 'error')
+    assert.deepEqual(result.newDependencies, [])
+    assert.deepEqual(result.errors, [
+      'requirements.txt:unsupported-requirement-removed:flask>=2,<3',
+      'requirements.txt:unsupported-requirement-added:flask>=2,<4',
+    ])
+  } finally {
+    rmSync(repoDir, { recursive: true, force: true })
+  }
+})
+
+test('checkChangedPipRequirements treats removing one of multiple requirement variants as manual review', () => {
   const repoDir = initRepo()
 
   try {
@@ -240,16 +272,16 @@ test('checkChangedPipRequirements allows removing one of multiple requirement va
 
     const result = checkChangedPipRequirements({ baseSha, headSha, cwd: repoDir })
 
-    assert.equal(result.ok, true)
-    assert.equal(result.status, 'clear')
+    assert.equal(result.ok, false)
+    assert.equal(result.status, 'error')
     assert.deepEqual(result.newDependencies, [])
-    assert.deepEqual(result.errors, [])
+    assert.deepEqual(result.errors, ['requirements.txt:requirement-variants-changed:requests'])
   } finally {
     rmSync(repoDir, { recursive: true, force: true })
   }
 })
 
-test('checkChangedPipRequirements ignores newly added complex requirement lines when no new simple dependencies are introduced', () => {
+test('checkChangedPipRequirements treats newly added complex requirement lines as manual review', () => {
   const repoDir = initRepo()
 
   try {
@@ -279,10 +311,18 @@ test('checkChangedPipRequirements ignores newly added complex requirement lines 
 
     const result = checkChangedPipRequirements({ baseSha, headSha, cwd: repoDir })
 
-    assert.equal(result.ok, true)
-    assert.equal(result.status, 'clear')
+    assert.equal(result.ok, false)
+    assert.equal(result.status, 'error')
     assert.deepEqual(result.newDependencies, [])
-    assert.deepEqual(result.errors, [])
+    assert.deepEqual(result.errors, [
+      'requirements.txt:unsupported-requirement-added:barepkg',
+      'requirements.txt:unsupported-requirement-added:directpkg @ https://example.com/directpkg.whl',
+      'requirements.txt:unsupported-requirement-added:-e git+https://example.com/editable.git#egg=editable',
+      'requirements.txt:unsupported-requirement-added:-r other-requirements.txt',
+      'requirements.txt:unsupported-requirement-added:--index-url https://example.com/simple',
+      'requirements.txt:unsupported-requirement-added:./localpkg',
+      'requirements.txt:unsupported-requirement-added:git+https://example.com/vcs.git#egg=vcs',
+    ])
   } finally {
     rmSync(repoDir, { recursive: true, force: true })
   }
@@ -314,7 +354,7 @@ test('checkChangedPipRequirements allows unchanged complex lines next to simple 
   }
 })
 
-test('checkChangedPipRequirements ignores removed complex requirement lines', () => {
+test('checkChangedPipRequirements treats removed complex requirement lines as manual review', () => {
   const repoDir = initRepo()
 
   try {
@@ -331,10 +371,10 @@ test('checkChangedPipRequirements ignores removed complex requirement lines', ()
 
     const result = checkChangedPipRequirements({ baseSha, headSha, cwd: repoDir })
 
-    assert.equal(result.ok, true)
-    assert.equal(result.status, 'clear')
+    assert.equal(result.ok, false)
+    assert.equal(result.status, 'error')
     assert.deepEqual(result.newDependencies, [])
-    assert.deepEqual(result.errors, [])
+    assert.deepEqual(result.errors, ['requirements.txt:unsupported-requirement-removed:--index-url https://example.com/simple'])
   } finally {
     rmSync(repoDir, { recursive: true, force: true })
   }
@@ -364,7 +404,7 @@ test('checkChangedPipRequirements treats newly added requirements files as manua
   }
 })
 
-test('checkChangedPipRequirements skips deleted requirements files', () => {
+test('checkChangedPipRequirements treats deleted requirements files as manual review', () => {
   const repoDir = initRepo()
 
   try {
@@ -381,10 +421,58 @@ test('checkChangedPipRequirements skips deleted requirements files', () => {
 
     const result = checkChangedPipRequirements({ baseSha, headSha, cwd: repoDir })
 
-    assert.equal(result.ok, true)
-    assert.equal(result.status, 'clear')
-    assert.deepEqual(result.skippedFiles, ['requirements.txt:missing-in-head'])
-    assert.deepEqual(result.errors, [])
+    assert.equal(result.ok, false)
+    assert.equal(result.status, 'error')
+    assert.deepEqual(result.skippedFiles, [])
+    assert.deepEqual(result.errors, ['requirements.txt:missing-in-head'])
+  } finally {
+    rmSync(repoDir, { recursive: true, force: true })
+  }
+})
+
+test('classifyChangedPipFiles rejects ambiguous text files under requirements directories', () => {
+  const repoDir = initRepo()
+
+  try {
+    const notesPath = path.join(repoDir, 'requirements', 'notes.txt')
+
+    writeText(notesPath, 'notes for humans\n')
+    git(repoDir, ['add', 'requirements/notes.txt'])
+    git(repoDir, ['commit', '-m', 'base'])
+    const baseSha = git(repoDir, ['rev-parse', 'HEAD'])
+
+    writeText(notesPath, 'updated notes for humans\n')
+    git(repoDir, ['commit', '-am', 'update notes'])
+    const headSha = git(repoDir, ['rev-parse', 'HEAD'])
+
+    const result = classifyChangedPipFiles({ baseSha, headSha, cwd: repoDir })
+
+    assert.deepEqual(result.requirementFiles, [])
+    assert.deepEqual(result.unexpectedFiles, ['requirements/notes.txt'])
+  } finally {
+    rmSync(repoDir, { recursive: true, force: true })
+  }
+})
+
+test('classifyChangedPipFiles allows valid requirements content in requirements directories', () => {
+  const repoDir = initRepo()
+
+  try {
+    const requirementsPath = path.join(repoDir, 'requirements', 'dev.txt')
+
+    writeText(requirementsPath, '-r base.txt\n')
+    git(repoDir, ['add', 'requirements/dev.txt'])
+    git(repoDir, ['commit', '-m', 'base'])
+    const baseSha = git(repoDir, ['rev-parse', 'HEAD'])
+
+    writeText(requirementsPath, '-r constraints.txt\n')
+    git(repoDir, ['commit', '-am', 'update dev requirements'])
+    const headSha = git(repoDir, ['rev-parse', 'HEAD'])
+
+    const result = classifyChangedPipFiles({ baseSha, headSha, cwd: repoDir })
+
+    assert.deepEqual(result.requirementFiles, ['requirements/dev.txt'])
+    assert.deepEqual(result.unexpectedFiles, [])
   } finally {
     rmSync(repoDir, { recursive: true, force: true })
   }

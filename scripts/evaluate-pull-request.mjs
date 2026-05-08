@@ -4,8 +4,9 @@ import { randomUUID } from 'node:crypto'
 import { buildApprovalComment, buildDependencyKey, parseApprovalComment, resolveApprovalCheckedAt } from './lib/approval-signal.mjs'
 import { GitHubClient, calculateAgeDays, parseCsvList } from './lib/github.mjs'
 import { checkChangedLockfiles } from './lib/lockfiles.mjs'
-import { checkChangedPipRequirements } from './lib/pip-requirements.mjs'
+import { checkChangedPipRequirements, classifyChangedPipFiles } from './lib/pip-requirements.mjs'
 import { findUnexpectedFiles, listChangedFiles, extractActionOwners } from './lib/pr-changes.mjs'
+import { checkChangedUvLockfiles } from './lib/uv-lockfiles.mjs'
 
 function setOutput(name, value) {
   const delimiter = `EOF_${randomUUID()}`
@@ -65,6 +66,7 @@ console.log(`  Update type: ${updateType || 'unknown'}`)
 
 let candidate = true
 let reason = 'eligible'
+let pipFileClassification = null
 
 if (!allowedEcosystems.has(packageEcosystem)) {
   candidate = false
@@ -87,10 +89,19 @@ if (candidate) {
     baseSha: pullRequest.base.sha,
     headSha: pullRequest.head.sha,
   })
-  const unexpectedFiles = findUnexpectedFiles({
-    packageEcosystem,
-    changedFiles,
-  })
+  pipFileClassification = packageEcosystem === 'pip'
+    ? classifyChangedPipFiles({
+        baseSha: pullRequest.base.sha,
+        headSha: pullRequest.head.sha,
+        changedFiles,
+      })
+    : null
+  const unexpectedFiles = pipFileClassification
+    ? pipFileClassification.unexpectedFiles
+    : findUnexpectedFiles({
+        packageEcosystem,
+        changedFiles,
+      })
 
   if (unexpectedFiles.length > 0) {
     candidate = false
@@ -160,10 +171,57 @@ if (candidate && packageEcosystem === 'npm_and_yarn') {
     candidate = false
     reason = 'unsupported-lockfile'
     console.log('  Unsupported lockfiles require manual review.')
+  } else if (lockfileResult.status === 'no-lockfiles') {
+    candidate = false
+    reason = 'no-lockfiles'
+    console.log('  No supported npm lockfiles changed; manual review required.')
   } else if (lockfileResult.errors.length > 0) {
     candidate = false
     reason = 'lockfile-check-failed'
     console.log('  Lockfile check failed:')
+    for (const error of lockfileResult.errors) {
+      console.log(`    - ${error}`)
+    }
+  } else if (lockfileResult.newDependencies.length > 0) {
+    candidate = false
+    reason = 'new-dependencies'
+    console.log('  New dependencies detected:')
+    for (const dependency of lockfileResult.newDependencies) {
+      console.log(`    - ${dependency}`)
+    }
+  } else {
+    console.log('  No newly introduced dependencies detected.')
+  }
+}
+
+if (candidate && packageEcosystem === 'uv') {
+  console.log('  Checking changed uv lockfiles for newly introduced dependencies...')
+
+  const lockfileResult = checkChangedUvLockfiles({
+    baseSha: pullRequest.base.sha,
+    headSha: pullRequest.head.sha,
+  })
+
+  setDependencyFileStatus(lockfileResult.status)
+
+  if (lockfileResult.changedFiles.length > 0) {
+    console.log(`  Changed uv lockfiles: ${lockfileResult.changedFiles.join(', ')}`)
+  } else {
+    console.log('  No changed uv lockfiles found.')
+  }
+
+  for (const skippedFile of lockfileResult.skippedFiles) {
+    console.log(`  Note: ${skippedFile}`)
+  }
+
+  if (lockfileResult.status === 'no-lockfiles') {
+    candidate = false
+    reason = 'no-lockfiles'
+    console.log('  No changed uv lockfiles found; manual review required.')
+  } else if (lockfileResult.errors.length > 0) {
+    candidate = false
+    reason = 'dependency-file-check-failed'
+    console.log('  uv lockfile check failed:')
     for (const error of lockfileResult.errors) {
       console.log(`    - ${error}`)
     }
@@ -185,6 +243,7 @@ if (candidate && packageEcosystem === 'pip') {
   const requirementsResult = checkChangedPipRequirements({
     baseSha: pullRequest.base.sha,
     headSha: pullRequest.head.sha,
+    changedFiles: pipFileClassification?.requirementFiles,
   })
 
   setDependencyFileStatus(requirementsResult.status)

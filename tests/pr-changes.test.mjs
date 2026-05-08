@@ -17,6 +17,24 @@ test('findUnexpectedFiles rejects non-manifest files for npm_and_yarn PRs', () =
   assert.deepEqual(unexpectedFiles, ['src/server.js'])
 })
 
+test('findUnexpectedFiles allows pyproject.toml and uv.lock for uv PRs', () => {
+  const unexpectedFiles = findUnexpectedFiles({
+    packageEcosystem: 'uv',
+    changedFiles: ['pyproject.toml', 'uv.lock', 'services/api/pyproject.toml'],
+  })
+
+  assert.deepEqual(unexpectedFiles, [])
+})
+
+test('findUnexpectedFiles rejects unrelated files for uv PRs', () => {
+  const unexpectedFiles = findUnexpectedFiles({
+    packageEcosystem: 'uv',
+    changedFiles: ['pyproject.toml', 'uv.lock', 'requirements.txt', 'src/app.py'],
+  })
+
+  assert.deepEqual(unexpectedFiles, ['requirements.txt', 'src/app.py'])
+})
+
 test('findUnexpectedFiles allows pip requirements and constraints files', () => {
   const unexpectedFiles = findUnexpectedFiles({
     packageEcosystem: 'pip',

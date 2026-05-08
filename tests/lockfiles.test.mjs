@@ -176,7 +176,37 @@ test('checkChangedLockfiles treats newly added lockfiles as manual review', () =
   }
 })
 
-test('checkChangedLockfiles skips deleted lockfiles', () => {
+test('checkChangedLockfiles returns status no-lockfiles when no supported npm lockfiles changed', () => {
+  const repoDir = mkdtempSync(path.join(tmpdir(), 'dependabot-automation-lockfiles-'))
+
+  try {
+    git(repoDir, ['init'])
+    git(repoDir, ['config', 'user.name', 'Codex'])
+    git(repoDir, ['config', 'user.email', 'codex@example.com'])
+
+    writeFileSync(path.join(repoDir, 'package.json'), '{"name":"demo"}\n')
+    git(repoDir, ['add', 'package.json'])
+    git(repoDir, ['commit', '-m', 'base'])
+    const baseSha = git(repoDir, ['rev-parse', 'HEAD'])
+
+    writeFileSync(path.join(repoDir, 'package.json'), '{"name":"demo","version":"1.0.1"}\n')
+    git(repoDir, ['commit', '-am', 'update package json'])
+    const headSha = git(repoDir, ['rev-parse', 'HEAD'])
+
+    const result = checkChangedLockfiles({ baseSha, headSha, cwd: repoDir })
+
+    assert.equal(result.ok, true)
+    assert.equal(result.status, 'no-lockfiles')
+    assert.deepEqual(result.changedFiles, [])
+    assert.deepEqual(result.unsupportedFiles, [])
+    assert.deepEqual(result.newDependencies, [])
+    assert.deepEqual(result.errors, [])
+  } finally {
+    rmSync(repoDir, { recursive: true, force: true })
+  }
+})
+
+test('checkChangedLockfiles treats deleted lockfiles as manual review', () => {
   const repoDir = mkdtempSync(path.join(tmpdir(), 'dependabot-automation-lockfiles-'))
 
   try {
@@ -207,10 +237,10 @@ test('checkChangedLockfiles skips deleted lockfiles', () => {
 
     const result = checkChangedLockfiles({ baseSha, headSha, cwd: repoDir })
 
-    assert.equal(result.ok, true)
-    assert.equal(result.status, 'clear')
-    assert.deepEqual(result.skippedFiles, ['package-lock.json:missing-in-head'])
-    assert.deepEqual(result.errors, [])
+    assert.equal(result.ok, false)
+    assert.equal(result.status, 'error')
+    assert.deepEqual(result.skippedFiles, [])
+    assert.deepEqual(result.errors, ['package-lock.json:missing-in-head'])
     assert.deepEqual(result.newDependencies, [])
   } finally {
     rmSync(repoDir, { recursive: true, force: true })
