@@ -215,8 +215,38 @@ test('checkChangedUvLockfiles treats malformed uv.lock files as manual review', 
     git(repoDir, ['commit', '-m', 'base'])
     const baseSha = git(repoDir, ['rev-parse', 'HEAD'])
 
+    writeText(lockfilePath, 'version = 1\n\n[[package]]\nname = "requests"\nsource = { registry = "https://pypi.org/simple"\n')
+    git(repoDir, ['commit', '-am', 'break uv lock inline table'])
+    const headSha = git(repoDir, ['rev-parse', 'HEAD'])
+
+    const result = checkChangedUvLockfiles({ baseSha, headSha, cwd: repoDir })
+
+    assert.equal(result.ok, false)
+    assert.equal(result.status, 'error')
+    assert.equal(result.errors.length, 1)
+    assert.match(result.errors[0], /^uv\.lock:parse-failed:/)
+  } finally {
+    rmSync(repoDir, { recursive: true, force: true })
+  }
+})
+
+test('checkChangedUvLockfiles treats malformed uv.lock table headers as manual review', () => {
+  const repoDir = mkdtempSync(path.join(tmpdir(), 'dependabot-automation-uv-lockfiles-'))
+
+  try {
+    git(repoDir, ['init'])
+    git(repoDir, ['config', 'user.name', 'Codex'])
+    git(repoDir, ['config', 'user.email', 'codex@example.com'])
+
+    const lockfilePath = path.join(repoDir, 'uv.lock')
+
+    writeText(lockfilePath, baseUvLock())
+    git(repoDir, ['add', 'uv.lock'])
+    git(repoDir, ['commit', '-m', 'base'])
+    const baseSha = git(repoDir, ['rev-parse', 'HEAD'])
+
     writeText(lockfilePath, '[[package]\nname = "requests"\n')
-    git(repoDir, ['commit', '-am', 'break uv lock'])
+    git(repoDir, ['commit', '-am', 'break uv lock header'])
     const headSha = git(repoDir, ['rev-parse', 'HEAD'])
 
     const result = checkChangedUvLockfiles({ baseSha, headSha, cwd: repoDir })
