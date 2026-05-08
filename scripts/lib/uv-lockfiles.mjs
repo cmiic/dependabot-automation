@@ -1,41 +1,37 @@
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 
+import toml from 'toml'
+
 import { listChangedFiles, pathExistsInGitRevision, runGit } from './pr-changes.mjs'
 
-const LOCKFILE_BASENAMES = new Set(['package-lock.json', 'npm-shrinkwrap.json'])
-const UNSUPPORTED_LOCKFILE_BASENAMES = new Set(['yarn.lock', 'pnpm-lock.yaml'])
+const UV_LOCKFILE_BASENAME = 'uv.lock'
 
-function isSupportedLockfile (filePath) {
-  return LOCKFILE_BASENAMES.has(path.basename(filePath))
-}
-
-function isUnsupportedLockfile (filePath) {
-  return UNSUPPORTED_LOCKFILE_BASENAMES.has(path.basename(filePath))
+function isUvLockfile (filePath) {
+  return path.basename(filePath) === UV_LOCKFILE_BASENAME
 }
 
 function addDependenciesFromPackages (packages, dependencies) {
-  for (const packagePath of Object.keys(packages)) {
-    if (!packagePath) {
-      continue
+  for (const pkg of packages) {
+    if (!pkg || typeof pkg !== 'object' || typeof pkg.name !== 'string' || pkg.name.trim() === '') {
+      throw new Error('unsupported-lockfile-format: expected each package entry to have a name')
     }
 
-    const match = packagePath.match(/node_modules\/(.+)$/)
-    if (!match) {
-      continue
-    }
-
-    dependencies.add(match[1])
+    dependencies.add(pkg.name)
   }
 }
 
+function parseUvLock (content) {
+  return toml.parse(content)
+}
+
 export function extractDependencies (lockfile) {
-  if (!lockfile?.packages || typeof lockfile.packages !== 'object') {
-    throw new Error('unsupported-lockfile-format: expected lockfile.packages object')
+  if (!Array.isArray(lockfile?.package)) {
+    throw new Error('unsupported-lockfile-format: expected lockfile.package array')
   }
 
   const dependencies = new Set()
-  addDependenciesFromPackages(lockfile.packages, dependencies)
+  addDependenciesFromPackages(lockfile.package, dependencies)
 
   return dependencies
 }
@@ -51,24 +47,19 @@ function getErrorMessage (error) {
   return `${normalized.slice(0, 237)}...`
 }
 
-export function findChangedLockfiles ({ baseSha, headSha, cwd = process.cwd() }) {
-  const changedFiles = listChangedFiles({ baseSha, headSha, cwd })
+export function findChangedUvLockfiles ({ baseSha, headSha, changedFiles, cwd = process.cwd() }) {
+  const allChangedFiles = changedFiles ?? listChangedFiles({ baseSha, headSha, cwd })
 
   return {
-    changedFiles: changedFiles.filter(isSupportedLockfile),
-    unsupportedFiles: changedFiles.filter(isUnsupportedLockfile)
+    changedFiles: allChangedFiles.filter(isUvLockfile)
   }
 }
 
-export function checkChangedLockfiles ({ baseSha, headSha, cwd = process.cwd() }) {
-  const { changedFiles, unsupportedFiles } = findChangedLockfiles({ baseSha, headSha, cwd })
+export function checkChangedUvLockfiles ({ baseSha, headSha, cwd = process.cwd() }) {
+  const { changedFiles } = findChangedUvLockfiles({ baseSha, headSha, cwd })
   const newDependencies = []
   const errors = []
   const skippedFiles = []
-
-  for (const file of unsupportedFiles) {
-    errors.push(`${file}:unsupported-lockfile`)
-  }
 
   for (const file of changedFiles) {
     const fullPath = path.join(cwd, file)
@@ -99,8 +90,8 @@ export function checkChangedLockfiles ({ baseSha, headSha, cwd = process.cwd() }
     }
 
     try {
-      const baseLockfile = JSON.parse(baseContent)
-      const headLockfile = JSON.parse(headContent)
+      const baseLockfile = parseUvLock(baseContent)
+      const headLockfile = parseUvLock(headContent)
       const baseDependencies = extractDependencies(baseLockfile)
       const headDependencies = extractDependencies(headLockfile)
 
@@ -110,14 +101,12 @@ export function checkChangedLockfiles ({ baseSha, headSha, cwd = process.cwd() }
         }
       }
     } catch (error) {
-      errors.push(`${file}:parse-failed:${error.message}`)
+      errors.push(`${file}:parse-failed:${getErrorMessage(error)}`)
     }
   }
 
   let status = 'clear'
-  if (unsupportedFiles.length > 0) {
-    status = 'unsupported-lockfile'
-  } else if (changedFiles.length === 0) {
+  if (changedFiles.length === 0) {
     status = 'no-lockfiles'
   } else if (errors.length > 0) {
     status = 'error'
@@ -129,7 +118,6 @@ export function checkChangedLockfiles ({ baseSha, headSha, cwd = process.cwd() }
     ok: errors.length === 0 && newDependencies.length === 0,
     status,
     changedFiles,
-    unsupportedFiles,
     skippedFiles,
     newDependencies,
     errors

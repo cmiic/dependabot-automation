@@ -1,6 +1,6 @@
 const APPROVAL_MARKER_PREFIX = '<!-- dependabot-automation:approval '
 
-export function buildDependencyKey(updatedDependenciesJson) {
+export function buildDependencyKey (updatedDependenciesJson) {
   if (!updatedDependenciesJson) {
     return null
   }
@@ -16,18 +16,18 @@ export function buildDependencyKey(updatedDependenciesJson) {
     return null
   }
 
-  if (parsed.some((dep) => typeof dep?.dependencyName !== 'string')) {
+  if (parsed.some(dep => typeof dep?.dependencyName !== 'string')) {
     return null
   }
 
   const entries = parsed
-    .map((dep) => `${dep.dependencyName}:${dep.prevVersion ?? ''}:${dep.newVersion ?? ''}`)
+    .map(dep => `${dep.dependencyName}:${dep.prevVersion ?? ''}:${dep.newVersion ?? ''}`)
     .sort()
 
   return entries.join(',')
 }
 
-export function getApprovalCheckedAt(payload) {
+export function getApprovalCheckedAt (payload) {
   if (typeof payload?.checkedAt !== 'string') {
     return null
   }
@@ -39,11 +39,11 @@ export function getApprovalCheckedAt(payload) {
   return payload.checkedAt
 }
 
-export function resolveApprovalCheckedAt({
+export function resolveApprovalCheckedAt ({
   existingPayload,
   sha,
   dependencyKey = null,
-  fallbackCheckedAt = new Date().toISOString(),
+  fallbackCheckedAt = new Date().toISOString()
 }) {
   const checkedAt = getApprovalCheckedAt(existingPayload)
 
@@ -62,25 +62,29 @@ export function resolveApprovalCheckedAt({
   return fallbackCheckedAt
 }
 
-export function buildApprovalComment({
+export function buildApprovalComment ({
   status,
   sha,
   reason,
   packageEcosystem,
   updateType,
+  dependencyFileStatus,
   lockfileStatus,
   dependencyKey = null,
-  checkedAt = new Date().toISOString(),
+  checkedAt = new Date().toISOString()
 }) {
+  const resolvedDependencyFileStatus = dependencyFileStatus || lockfileStatus || 'skipped'
+  const resolvedLockfileStatus = lockfileStatus || resolvedDependencyFileStatus
   const payload = JSON.stringify({
     status,
     sha,
     reason,
     packageEcosystem,
     updateType,
-    lockfileStatus,
+    dependencyFileStatus: resolvedDependencyFileStatus,
+    lockfileStatus: resolvedLockfileStatus,
     dependencyKey,
-    checkedAt,
+    checkedAt
   })
 
   const humanStatus = status === 'approved' ? 'approved' : 'not approved'
@@ -95,12 +99,13 @@ export function buildApprovalComment({
     `- Reason: \`${reason}\``,
     `- Ecosystem: \`${packageEcosystem || 'unknown'}\``,
     `- Update type: \`${updateType || 'unknown'}\``,
-    `- Lockfile status: \`${lockfileStatus || 'skipped'}\``,
-    `- Checked at: \`${checkedAt}\``,
+    `- Dependency file status: \`${resolvedDependencyFileStatus}\``,
+    `- Lockfile status: \`${resolvedLockfileStatus}\``,
+    `- Checked at: \`${checkedAt}\``
   ].join('\n')
 }
 
-export function parseApprovalComment(body) {
+export function parseApprovalComment (body) {
   if (typeof body !== 'string' || !body.startsWith(APPROVAL_MARKER_PREFIX)) {
     return null
   }
@@ -118,6 +123,6 @@ export function parseApprovalComment(body) {
   }
 }
 
-export function isAutomationApprovalComment(body) {
+export function isAutomationApprovalComment (body) {
   return typeof body === 'string' && body.startsWith(APPROVAL_MARKER_PREFIX)
 }

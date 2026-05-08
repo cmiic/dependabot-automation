@@ -6,49 +6,75 @@ const NPM_AND_YARN_BASENAMES = new Set([
   'package-lock.json',
   'npm-shrinkwrap.json',
   'yarn.lock',
-  'pnpm-lock.yaml',
+  'pnpm-lock.yaml'
 ])
 const DOCKER_COMPOSE_BASENAMES = new Set([
   'docker-compose.yml',
   'docker-compose.yaml',
   'compose.yml',
-  'compose.yaml',
+  'compose.yaml'
 ])
 
-function normalizePath(filePath) {
+function normalizePath (filePath) {
   return filePath.replace(/\\/g, '/')
 }
 
-function hasYamlExtension(filePath) {
+function hasYamlExtension (filePath) {
   return /\.ya?ml$/i.test(filePath)
 }
 
-function hasJsonExtension(filePath) {
+function hasJsonExtension (filePath) {
   return /\.jsonc?$/i.test(filePath)
 }
 
-function isDockerfile(filePath) {
+function isDockerfile (filePath) {
   const basename = path.basename(filePath)
 
   return (
-    basename === 'Dockerfile' ||
-    basename.startsWith('Dockerfile.') ||
-    basename.endsWith('.Dockerfile') ||
-    basename === 'Containerfile' ||
-    basename.startsWith('Containerfile.') ||
-    basename.endsWith('.Containerfile')
+    basename === 'Dockerfile'
+    || basename.startsWith('Dockerfile.')
+    || basename.endsWith('.Dockerfile')
+    || basename === 'Containerfile'
+    || basename.startsWith('Containerfile.')
+    || basename.endsWith('.Containerfile')
   )
 }
 
-function isDockerComposeFile(filePath) {
+function isDockerComposeFile (filePath) {
   return DOCKER_COMPOSE_BASENAMES.has(path.basename(filePath))
 }
 
-function isNpmAndYarnFile(filePath) {
+function isNpmAndYarnFile (filePath) {
   return NPM_AND_YARN_BASENAMES.has(path.basename(filePath))
 }
 
-function isGitHubActionsFile(filePath) {
+function isUvFile (filePath) {
+  const basename = path.basename(normalizePath(filePath))
+
+  return basename === 'pyproject.toml' || basename === 'uv.lock'
+}
+
+export function isPipRequirementsFile (filePath) {
+  const normalized = normalizePath(filePath)
+  const basename = path.basename(normalized).toLowerCase()
+
+  if (!/\.(txt|in)$/i.test(basename)) {
+    return false
+  }
+
+  if (normalized.startsWith('requirements/') || normalized.includes('/requirements/')) {
+    return true
+  }
+
+  return (
+    /^requirements.*\.(txt|in)$/i.test(basename)
+    || /^.+-requirements\.(txt|in)$/i.test(basename)
+    || /^constraints.*\.(txt|in)$/i.test(basename)
+    || /^.+-constraints\.(txt|in)$/i.test(basename)
+  )
+}
+
+function isGitHubActionsFile (filePath) {
   const normalized = normalizePath(filePath)
   const basename = path.basename(normalized)
 
@@ -59,11 +85,11 @@ function isGitHubActionsFile(filePath) {
   return normalized.startsWith('.github/workflows/') && hasYamlExtension(normalized)
 }
 
-function isDevcontainerFile(filePath) {
+function isDevcontainerFile (filePath) {
   const normalized = normalizePath(filePath)
   const basename = path.basename(normalized)
-  const inDevcontainerDir =
-    normalized.startsWith('.devcontainer/') || normalized.includes('/.devcontainer/')
+  const inDevcontainerDir
+    = normalized.startsWith('.devcontainer/') || normalized.includes('/.devcontainer/')
 
   if (basename === '.devcontainer.json') {
     return true
@@ -76,53 +102,64 @@ function isDevcontainerFile(filePath) {
   return inDevcontainerDir && (hasJsonExtension(normalized) || hasYamlExtension(normalized) || isDockerfile(normalized))
 }
 
-function isDockerFile(filePath) {
+function isDockerFile (filePath) {
   return isDockerfile(filePath) || isDockerComposeFile(filePath)
 }
 
 const ECOSYSTEM_FILE_MATCHERS = new Map([
   ['npm_and_yarn', isNpmAndYarnFile],
+  ['uv', isUvFile],
+  ['pip', isPipRequirementsFile],
   ['github_actions', isGitHubActionsFile],
   ['devcontainers', isDevcontainerFile],
-  ['docker', isDockerFile],
+  ['docker', isDockerFile]
 ])
 
-export function runGit(args, cwd = process.cwd()) {
+export function runGit (args, cwd = process.cwd()) {
   return execFileSync('git', args, {
     cwd,
     encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: ['ignore', 'pipe', 'pipe']
   })
 }
 
-export function listChangedFiles({ baseSha, headSha, cwd = process.cwd() }) {
+export function pathExistsInGitRevision ({ revision, filePath, cwd = process.cwd() }) {
+  const output = runGit(['ls-tree', '-r', '--name-only', revision, '--', filePath], cwd)
+
+  return output
+    .split('\n')
+    .map(line => normalizePath(line.trim()))
+    .includes(normalizePath(filePath))
+}
+
+export function listChangedFiles ({ baseSha, headSha, cwd = process.cwd() }) {
   const output = runGit(['diff', '--name-only', baseSha, headSha], cwd)
 
   return output
     .split('\n')
-    .map((line) => normalizePath(line.trim()))
+    .map(line => normalizePath(line.trim()))
     .filter(Boolean)
 }
 
-export function extractActionOwners(dependencyNames) {
+export function extractActionOwners (dependencyNames) {
   if (!dependencyNames) return new Set()
 
   return new Set(
     dependencyNames
       .split(',')
-      .map((name) => name.trim())
+      .map(name => name.trim())
       .filter(Boolean)
-      .map((name) => name.split('/')[0])
-      .filter(Boolean),
+      .map(name => name.split('/')[0])
+      .filter(Boolean)
   )
 }
 
-export function findUnexpectedFiles({ packageEcosystem, changedFiles }) {
+export function findUnexpectedFiles ({ packageEcosystem, changedFiles }) {
   const matcher = ECOSYSTEM_FILE_MATCHERS.get(packageEcosystem)
 
   if (!matcher) {
     return [...changedFiles]
   }
 
-  return changedFiles.filter((filePath) => !matcher(filePath))
+  return changedFiles.filter(filePath => !matcher(filePath))
 }

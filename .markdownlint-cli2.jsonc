@@ -1,0 +1,19 @@
+{
+  // markdownlint-cli2 config (used by the VS Code markdownlint extension)
+  "config": {
+    // Keep rule configuration in .markdownlint.json for portability
+    "extends": ".markdownlint.json"
+  },
+  // Lint all Markdown in the repo
+  "globs": ["**/*.md"],
+  // Ignore generated/vendor content
+  "ignores": [
+    "node_modules",
+    "dist-student",
+    "playwright/.mcp",
+    "playwright-report",
+    "test-results",
+    "course/themes",
+    "tmp"
+  ]
+}

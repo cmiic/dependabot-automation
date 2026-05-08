@@ -12,7 +12,7 @@ inputs:
   allowed-ecosystems:
     description: Comma-separated package ecosystems allowed for auto-merge. Use the values returned by dependabot/fetch-metadata (e.g. github_actions, not the dependabot.yml form github-actions).
     required: false
-    default: github_actions,npm_and_yarn,devcontainers,docker
+    default: github_actions,npm_and_yarn,devcontainers,docker,uv,pip
   skip-commit-verification:
     description: Forwarded to dependabot/fetch-metadata. Set to true only if you intentionally accept unsigned or non-Dependabot commits on bot PRs.
     required: false
@@ -44,8 +44,11 @@ outputs:
   age-days:
     description: Integer approval age in days for the current head SHA.
     value: ${{ steps.result.outputs.age-days }}
+  dependency-file-status:
+    description: Outcome of the dependency file policy check.
+    value: ${{ steps.result.outputs.dependency-file-status }}
   lockfile-status:
-    description: Outcome of the npm lockfile policy check.
+    description: Legacy alias for dependency-file-status.
     value: ${{ steps.result.outputs.lockfile-status }}
 
 runs:
@@ -63,6 +66,7 @@ runs:
           echo "package-ecosystem=" >> "$GITHUB_OUTPUT"
           echo "update-type=" >> "$GITHUB_OUTPUT"
           echo "age-days=0" >> "$GITHUB_OUTPUT"
+          echo "dependency-file-status=skipped" >> "$GITHUB_OUTPUT"
           echo "lockfile-status=skipped" >> "$GITHUB_OUTPUT"
           exit 0
         fi
@@ -76,6 +80,7 @@ runs:
           echo "package-ecosystem=" >> "$GITHUB_OUTPUT"
           echo "update-type=" >> "$GITHUB_OUTPUT"
           echo "age-days=0" >> "$GITHUB_OUTPUT"
+          echo "dependency-file-status=skipped" >> "$GITHUB_OUTPUT"
           echo "lockfile-status=skipped" >> "$GITHUB_OUTPUT"
           exit 0
         fi
@@ -96,6 +101,10 @@ runs:
       if: steps.guard.outputs.run == 'true'
       with:
         node-version: 24
+
+    - if: steps.guard.outputs.run == 'true'
+      shell: bash
+      run: npm ci --ignore-scripts
 
     - id: metadata
       if: steps.guard.outputs.run == 'true'
@@ -128,6 +137,7 @@ runs:
         GUARD_PACKAGE_ECOSYSTEM: ${{ steps.guard.outputs.package-ecosystem }}
         GUARD_UPDATE_TYPE: ${{ steps.guard.outputs.update-type }}
         GUARD_AGE_DAYS: ${{ steps.guard.outputs.age-days }}
+        GUARD_DEPENDENCY_FILE_STATUS: ${{ steps.guard.outputs.dependency-file-status }}
         GUARD_LOCKFILE_STATUS: ${{ steps.guard.outputs.lockfile-status }}
         EVALUATE_CANDIDATE: ${{ steps.evaluate.outputs.candidate }}
         EVALUATE_QUARANTINE_PASSED: ${{ steps.evaluate.outputs.quarantine-passed }}
@@ -136,6 +146,7 @@ runs:
         EVALUATE_PACKAGE_ECOSYSTEM: ${{ steps.evaluate.outputs.package-ecosystem }}
         EVALUATE_UPDATE_TYPE: ${{ steps.evaluate.outputs.update-type }}
         EVALUATE_AGE_DAYS: ${{ steps.evaluate.outputs.age-days }}
+        EVALUATE_DEPENDENCY_FILE_STATUS: ${{ steps.evaluate.outputs.dependency-file-status }}
         EVALUATE_LOCKFILE_STATUS: ${{ steps.evaluate.outputs.lockfile-status }}
       run: |
         pick() {
@@ -156,4 +167,5 @@ runs:
         pick package-ecosystem "$EVALUATE_PACKAGE_ECOSYSTEM" "$GUARD_PACKAGE_ECOSYSTEM"
         pick update-type "$EVALUATE_UPDATE_TYPE" "$GUARD_UPDATE_TYPE"
         pick age-days "$EVALUATE_AGE_DAYS" "$GUARD_AGE_DAYS"
+        pick dependency-file-status "$EVALUATE_DEPENDENCY_FILE_STATUS" "$GUARD_DEPENDENCY_FILE_STATUS"
         pick lockfile-status "$EVALUATE_LOCKFILE_STATUS" "$GUARD_LOCKFILE_STATUS"

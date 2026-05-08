@@ -6,10 +6,25 @@
     "node": ">=24"
   },
   "scripts": {
-    "check": "node --check scripts/lib/approval-signal.mjs && node --check scripts/lib/github.mjs && node --check scripts/lib/lockfiles.mjs && node --check scripts/lib/pr-changes.mjs && node --check scripts/evaluate-pull-request.mjs && node --check scripts/process-cron.mjs",
+    "check": "node --check scripts/lib/approval-signal.mjs && node --check scripts/lib/github.mjs && node --check scripts/lib/lockfiles.mjs && node --check scripts/lib/pip-requirements.mjs && node --check scripts/lib/pr-changes.mjs && node --check scripts/lib/uv-lockfiles.mjs && node --check scripts/evaluate-pull-request.mjs && node --check scripts/process-cron.mjs",
     "test": "node --test tests/*.test.mjs",
     "test:approval": "node --test tests/approval-signal.test.mjs",
     "test:lockfiles": "node --test tests/lockfiles.test.mjs",
-    "test:pr-changes": "node --test tests/pr-changes.test.mjs"
+    "test:pip": "node --test tests/pip-requirements.test.mjs",
+    "test:pr-changes": "node --test tests/pr-changes.test.mjs",
+    "test:uv": "node --test tests/uv-lockfiles.test.mjs",
+    "lint": "npm run lint:js && npm run lint:md",
+    "lint:js": "eslint .",
+    "lint:md": "markdownlint-cli2"
+  },
+  "dependencies": {
+    "toml": "4.1.1"
+  },
+  "devDependencies": {
+    "@stylistic/eslint-plugin": "5.10.0",
+    "@eslint/js": "10.0.1",
+    "eslint": "10.2.1",
+    "globals": "17.6.0",
+    "markdownlint-cli2": "0.22.1"
   }
 }

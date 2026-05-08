@@ -12,13 +12,19 @@ Responsibilities are split so the PR action owns the semver/lockfile/file-surfac
 By default the PR action:
 
 - only acts on `dependabot[bot]` pull requests
-- allows `github-actions`, `npm_and_yarn`, `devcontainers`, and `docker`
+- allows `github_actions`, `npm_and_yarn`, `devcontainers`, `docker`, `uv`, and `pip`
 - allows only semver `patch` and `minor` updates
 - requires Dependabot commit verification unless you explicitly opt out
 - rejects pull requests that modify files outside the expected dependency-update surface for the detected ecosystem
 - checks changed `package-lock.json` and `npm-shrinkwrap.json` files for newly introduced dependencies on `npm_and_yarn`
 - fails closed on `npm_and_yarn` pull requests that modify unsupported lockfiles such as `yarn.lock` or `pnpm-lock.yaml`
-- requires modern npm lockfiles with a `packages` object and treats new or unreadable lockfiles as manual review
+- requires at least one changed supported npm lockfile for `npm_and_yarn`; missing, deleted, new, or unreadable supported lockfiles are manual review
+- allows only `pyproject.toml` and `uv.lock` for `uv` pull requests and requires a changed `uv.lock`
+- checks changed `uv.lock` files for newly introduced dependencies on `uv`
+- treats new, deleted, unreadable, or malformed `uv.lock` files as manual review
+- checks changed pip requirement files for newly introduced dependencies on `pip` only when the parser can compare them safely
+- treats dependency removals, requirement variant changes, added or removed complex installable lines, new or deleted requirement files, unreadable files, and ambiguous text files under `requirements/` whose contents are not recognizable as requirements syntax or contain unparseable lines as manual review
+- treats `pip` support as requirements/constraints-file-only; changes to `pyproject.toml`, `setup.py`, `setup.cfg`, `Pipfile`, `Pipfile.lock`, `poetry.lock`, or other Python packaging files require manual review
 - upserts a bot-authored approval comment tied to the current PR head SHA
 - preserves the first evaluation timestamp for the current head SHA, so quarantine is not reset by re-runs of the action
 - carries forward the quarantine timestamp across rebases when the dependency versions are unchanged
@@ -111,7 +117,7 @@ Shared inputs:
 
 `merge`-only inputs:
 
-- `allowed-ecosystems`: default `github-actions,npm_and_yarn,devcontainers,docker`
+- `allowed-ecosystems`: default `github_actions,npm_and_yarn,devcontainers,docker,uv,pip`
 - `skip-commit-verification`: default `false`
   Setting this to `true` weakens the branch-tampering defense and should be treated as an explicit trust decision.
   Warning: Setting `skip-commit-verification: true` allows tampered PRs to be merged if an attacker hides malicious code inside expected files (e.g., modifying `package.json` scripts or adding malicious steps to `.github/workflows/*.yml`).
@@ -131,7 +137,8 @@ Shared inputs:
 - `package-ecosystem`
 - `update-type`
 - `age-days`
-- `lockfile-status`
+- `dependency-file-status`
+- `lockfile-status` (legacy alias for `dependency-file-status`)
 
 `cron` exposes:
 

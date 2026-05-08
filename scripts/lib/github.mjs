@@ -1,13 +1,13 @@
 const API_VERSION = '2022-11-28'
 const USER_AGENT = 'cmiic-dependabot-automation'
-export function parseCsvList(raw) {
+export function parseCsvList (raw) {
   return String(raw ?? '')
     .split(',')
-    .map((value) => value.trim())
+    .map(value => value.trim())
     .filter(Boolean)
 }
 
-export function normalizeMergeMethod(raw = 'squash') {
+export function normalizeMergeMethod (raw = 'squash') {
   const normalized = String(raw).trim().toUpperCase()
 
   if (normalized === 'MERGE' || normalized === 'SQUASH' || normalized === 'REBASE') {
@@ -17,7 +17,7 @@ export function normalizeMergeMethod(raw = 'squash') {
   throw new Error(`Unsupported merge method: ${raw}`)
 }
 
-export function calculateAgeDays(createdAt, now = Date.now()) {
+export function calculateAgeDays (createdAt, now = Date.now()) {
   const createdTs = Date.parse(createdAt)
   if (Number.isNaN(createdTs)) {
     throw new Error(`Invalid created_at timestamp: ${createdAt}`)
@@ -27,7 +27,7 @@ export function calculateAgeDays(createdAt, now = Date.now()) {
 }
 
 export class GitHubRequestError extends Error {
-  constructor(message, status, data) {
+  constructor (message, status, data) {
     super(message)
     this.name = 'GitHubRequestError'
     this.status = status
@@ -36,11 +36,11 @@ export class GitHubRequestError extends Error {
 }
 
 export class GitHubClient {
-  constructor({
+  constructor ({
     token,
     repository = process.env.GITHUB_REPOSITORY,
     serverUrl = process.env.GITHUB_API_URL || 'https://api.github.com',
-    graphqlUrl = process.env.GITHUB_GRAPHQL_URL,
+    graphqlUrl = process.env.GITHUB_GRAPHQL_URL
   }) {
     if (!token) {
       throw new Error('Missing GitHub token')
@@ -58,17 +58,17 @@ export class GitHubClient {
     this.repo = repo
   }
 
-  async request(method, path, body) {
+  async request (method, path, body) {
     const response = await fetch(`${this.serverUrl}${path}`, {
       method,
       headers: {
-        Accept: 'application/vnd.github+json',
-        Authorization: `Bearer ${this.token}`,
+        'Accept': 'application/vnd.github+json',
+        'Authorization': `Bearer ${this.token}`,
         'Content-Type': 'application/json',
         'User-Agent': USER_AGENT,
-        'X-GitHub-Api-Version': API_VERSION,
+        'X-GitHub-Api-Version': API_VERSION
       },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: body === undefined ? undefined : JSON.stringify(body)
     })
 
     const text = await response.text()
@@ -81,17 +81,17 @@ export class GitHubClient {
     return data
   }
 
-  async graphql(query, variables) {
+  async graphql (query, variables) {
     const response = await fetch(this.graphqlUrl, {
       method: 'POST',
       headers: {
-        Accept: 'application/vnd.github+json',
-        Authorization: `Bearer ${this.token}`,
+        'Accept': 'application/vnd.github+json',
+        'Authorization': `Bearer ${this.token}`,
         'Content-Type': 'application/json',
         'User-Agent': USER_AGENT,
-        'X-GitHub-Api-Version': API_VERSION,
+        'X-GitHub-Api-Version': API_VERSION
       },
-      body: JSON.stringify({ query, variables }),
+      body: JSON.stringify({ query, variables })
     })
 
     const payload = await response.json()
@@ -103,7 +103,7 @@ export class GitHubClient {
     return payload.data
   }
 
-  async enablePullRequestAutoMerge({ pullRequestId, mergeMethod }) {
+  async enablePullRequestAutoMerge ({ pullRequestId, mergeMethod }) {
     const data = await this.graphql(
       `
         mutation EnablePullRequestAutoMerge($pullRequestId: ID!, $mergeMethod: PullRequestMergeMethod!) {
@@ -116,14 +116,14 @@ export class GitHubClient {
       `,
       {
         pullRequestId,
-        mergeMethod,
+        mergeMethod
       }
     )
 
     return data.enablePullRequestAutoMerge.pullRequest
   }
 
-  async disablePullRequestAutoMerge(pullRequestId) {
+  async disablePullRequestAutoMerge (pullRequestId) {
     const data = await this.graphql(
       `
         mutation DisablePullRequestAutoMerge($pullRequestId: ID!) {
@@ -135,20 +135,20 @@ export class GitHubClient {
         }
       `,
       {
-        pullRequestId,
+        pullRequestId
       }
     )
 
     return data.disablePullRequestAutoMerge.pullRequest
   }
 
-  async mergePullRequest(number, mergeMethod) {
+  async mergePullRequest (number, mergeMethod) {
     return this.request('PUT', `/repos/${this.owner}/${this.repo}/pulls/${number}/merge`, {
-      merge_method: mergeMethod.toLowerCase(),
+      merge_method: mergeMethod.toLowerCase()
     })
   }
 
-  async listOpenPullRequests() {
+  async listOpenPullRequests () {
     const items = []
 
     for (let page = 1; ; page += 1) {
@@ -167,11 +167,11 @@ export class GitHubClient {
     return items
   }
 
-  async getPullRequest(number) {
+  async getPullRequest (number) {
     return this.request('GET', `/repos/${this.owner}/${this.repo}/pulls/${number}`)
   }
 
-  async listIssueComments(issueNumber) {
+  async listIssueComments (issueNumber) {
     const items = []
 
     for (let page = 1; ; page += 1) {
@@ -190,15 +190,15 @@ export class GitHubClient {
     return items
   }
 
-  async createIssueComment(issueNumber, body) {
+  async createIssueComment (issueNumber, body) {
     return this.request('POST', `/repos/${this.owner}/${this.repo}/issues/${issueNumber}/comments`, {
-      body,
+      body
     })
   }
 
-  async updateIssueComment(commentId, body) {
+  async updateIssueComment (commentId, body) {
     return this.request('PATCH', `/repos/${this.owner}/${this.repo}/issues/comments/${commentId}`, {
-      body,
+      body
     })
   }
 }
