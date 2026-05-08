@@ -13,8 +13,5 @@
     "test:pip": "node --test tests/pip-requirements.test.mjs",
     "test:pr-changes": "node --test tests/pr-changes.test.mjs",
     "test:uv": "node --test tests/uv-lockfiles.test.mjs"
-  },
-  "dependencies": {
-    "toml": "^4.1.1"
   }
 }
