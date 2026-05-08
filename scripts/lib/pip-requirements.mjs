@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 
-import { isPipRequirementsFile, listChangedFiles, runGit } from './pr-changes.mjs'
+import { isPipRequirementsFile, listChangedFiles, pathExistsInGitRevision, runGit } from './pr-changes.mjs'
 
 const SIMPLE_REQUIREMENT_PATTERN =
   /^([A-Za-z0-9][A-Za-z0-9._-]*)(\s*\[[A-Za-z0-9._,\-\s]+\])?\s*(===|==|~=|!=|<=|>=|<|>)\s*([^,;\s\\]+)\s*(?:;\s*(.+))?$/
@@ -137,6 +137,29 @@ function removeComplexLine(map, content) {
   return complexLine
 }
 
+function findComplexRequirementLineErrors(file, baseComplexLines, headComplexLines) {
+  const errors = []
+  const unmatchedBaseComplexLines = new Map()
+
+  for (const complexLine of baseComplexLines) {
+    addComplexLine(unmatchedBaseComplexLines, complexLine)
+  }
+
+  for (const complexLine of headComplexLines) {
+    if (!removeComplexLine(unmatchedBaseComplexLines, complexLine.content)) {
+      errors.push(`${file}:unsupported-requirement:${complexLine.lineNumber}:${complexLine.reason}`)
+    }
+  }
+
+  for (const complexLines of unmatchedBaseComplexLines.values()) {
+    for (const complexLine of complexLines) {
+      errors.push(`${file}:unsupported-requirement-removed:${complexLine.lineNumber}:${complexLine.reason}`)
+    }
+  }
+
+  return errors
+}
+
 export function extractRequirements(content) {
   const dependencies = new Set()
   const requirementKeysByName = new Map()
@@ -179,14 +202,6 @@ function getErrorMessage(error) {
   return `${normalized.slice(0, 237)}...`
 }
 
-function isMissingPathInBase(error) {
-  const message = getErrorMessage(error)
-  return (
-    message.includes(' exists on disk, but not in ') ||
-    (message.includes("fatal: path '") && message.includes("' does not exist in '"))
-  )
-}
-
 export function findChangedPipRequirementFiles({ baseSha, headSha, cwd = process.cwd() }) {
   const changedFiles = listChangedFiles({ baseSha, headSha, cwd })
 
@@ -213,7 +228,7 @@ export function checkChangedPipRequirements({ baseSha, headSha, cwd = process.cw
     try {
       baseContent = runGit(['show', `${baseSha}:${file}`], cwd)
     } catch (error) {
-      if (isMissingPathInBase(error)) {
+      if (!pathExistsInGitRevision({ revision: baseSha, filePath: file, cwd })) {
         errors.push(`${file}:missing-in-base`)
       } else {
         errors.push(`${file}:git-show-failed:${getErrorMessage(error)}`)
@@ -231,23 +246,7 @@ export function checkChangedPipRequirements({ baseSha, headSha, cwd = process.cw
 
     const baseRequirements = extractRequirements(baseContent)
     const headRequirements = extractRequirements(headContent)
-    const unmatchedBaseComplexLines = new Map()
-
-    for (const complexLine of baseRequirements.complexLines) {
-      addComplexLine(unmatchedBaseComplexLines, complexLine)
-    }
-
-    for (const complexLine of headRequirements.complexLines) {
-      if (!removeComplexLine(unmatchedBaseComplexLines, complexLine.content)) {
-        errors.push(`${file}:unsupported-requirement:${complexLine.lineNumber}:${complexLine.reason}`)
-      }
-    }
-
-    for (const complexLines of unmatchedBaseComplexLines.values()) {
-      for (const complexLine of complexLines) {
-        errors.push(`${file}:unsupported-requirement-removed:${complexLine.lineNumber}:${complexLine.reason}`)
-      }
-    }
+    errors.push(...findComplexRequirementLineErrors(file, baseRequirements.complexLines, headRequirements.complexLines))
 
     for (const dependency of Array.from(headRequirements.dependencies).sort()) {
       if (!baseRequirements.dependencies.has(dependency)) {

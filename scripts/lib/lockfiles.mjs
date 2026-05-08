@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 
-import { listChangedFiles, runGit } from './pr-changes.mjs'
+import { listChangedFiles, pathExistsInGitRevision, runGit } from './pr-changes.mjs'
 
 const LOCKFILE_BASENAMES = new Set(['package-lock.json', 'npm-shrinkwrap.json'])
 const UNSUPPORTED_LOCKFILE_BASENAMES = new Set(['yarn.lock', 'pnpm-lock.yaml'])
@@ -51,14 +51,6 @@ function getErrorMessage(error) {
   return `${normalized.slice(0, 237)}...`
 }
 
-function isMissingPathInBase(error) {
-  const message = getErrorMessage(error)
-  return (
-    message.includes(' exists on disk, but not in ') ||
-    (message.includes("fatal: path '") && message.includes("' does not exist in '"))
-  )
-}
-
 export function findChangedLockfiles({ baseSha, headSha, cwd = process.cwd() }) {
   const changedFiles = listChangedFiles({ baseSha, headSha, cwd })
 
@@ -90,7 +82,7 @@ export function checkChangedLockfiles({ baseSha, headSha, cwd = process.cwd() })
     try {
       baseContent = runGit(['show', `${baseSha}:${file}`], cwd)
     } catch (error) {
-      if (isMissingPathInBase(error)) {
+      if (!pathExistsInGitRevision({ revision: baseSha, filePath: file, cwd })) {
         errors.push(`${file}:missing-in-base`)
       } else {
         errors.push(`${file}:git-show-failed:${getErrorMessage(error)}`)

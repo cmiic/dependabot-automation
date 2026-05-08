@@ -116,6 +116,15 @@ export function runGit(args, cwd = process.cwd()) {
   })
 }
 
+export function pathExistsInGitRevision({ revision, filePath, cwd = process.cwd() }) {
+  const output = runGit(['ls-tree', '-r', '--name-only', revision, '--', filePath], cwd)
+
+  return output
+    .split('\n')
+    .map((line) => normalizePath(line.trim()))
+    .includes(normalizePath(filePath))
+}
+
 export function listChangedFiles({ baseSha, headSha, cwd = process.cwd() }) {
   const output = runGit(['diff', '--name-only', baseSha, headSha], cwd)
 
