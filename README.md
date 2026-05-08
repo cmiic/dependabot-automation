@@ -23,7 +23,7 @@ By default the PR action:
 - checks changed `uv.lock` files for newly introduced dependencies on `uv`
 - treats new, deleted, unreadable, or malformed `uv.lock` files as manual review
 - checks changed pip requirement files for newly introduced dependencies on `pip` only when the parser can compare them safely
-- treats dependency removals, requirement variant changes, added or removed complex installable lines, new or deleted requirement files, unreadable files, and ambiguous text files under `requirements/` as manual review
+- treats dependency removals, requirement variant changes, added or removed complex installable lines, new or deleted requirement files, unreadable files, and ambiguous text files under `requirements/` whose contents are not recognizable as requirements syntax or contain unparseable lines as manual review
 - treats `pip` support as requirements/constraints-file-only; changes to `pyproject.toml`, `setup.py`, `setup.cfg`, `Pipfile`, `Pipfile.lock`, `poetry.lock`, or other Python packaging files require manual review
 - upserts a bot-authored approval comment tied to the current PR head SHA
 - preserves the first evaluation timestamp for the current head SHA, so quarantine is not reset by re-runs of the action
