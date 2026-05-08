@@ -27,6 +27,9 @@ jobs:
           npm audit --audit-level=high
           npm audit signatures
 
+      - name: Verify bundled runtime
+        run: npm run check:dist
+
       - name: ESLint
         run: npm run lint:js
 

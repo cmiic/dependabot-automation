@@ -102,10 +102,6 @@ runs:
       with:
         node-version: 24
 
-    - if: steps.guard.outputs.run == 'true'
-      shell: bash
-      run: npm ci --ignore-scripts
-
     - id: metadata
       if: steps.guard.outputs.run == 'true'
       uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
@@ -125,7 +121,7 @@ runs:
         METADATA_DEPENDENCY_NAMES: ${{ steps.metadata.outputs.dependency-names }}
         METADATA_UPDATED_DEPENDENCIES_JSON: ${{ steps.metadata.outputs.updated-dependencies-json }}
         TRUSTED_ACTION_OWNERS: ${{ inputs.trusted-action-owners }}
-      run: node "$GITHUB_ACTION_PATH/../scripts/evaluate-pull-request.mjs"
+      run: node "$GITHUB_ACTION_PATH/../dist/evaluate-pull-request.mjs"
 
     - id: result
       shell: bash

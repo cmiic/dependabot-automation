@@ -154,7 +154,13 @@ Shared inputs:
 - Cron requires the latest machine-written approval comment from `github-actions[bot]` to say `approved` for the current PR head SHA.
 - The quarantine timer is anchored to the first evaluation timestamp for the dependency versions being updated, not the PR creation time. Rebases that do not change the dependency versions preserve the original timer.
 - Wrapper workflows own triggers and permissions; this repository owns the evaluation and merge behavior.
+- The action runtime is shipped as committed ESM bundles under `dist/`; consuming repositories do not need to provide `package.json` or `package-lock.json` for this action to bootstrap.
 - The `merge` wrapper needs `issues: write` because approval comments are issue comments on pull requests.
 - The `cron` wrapper only needs `issues: read` so it can inspect approval comments. It does not post any comments itself.
 - Stale PRs are left to Dependabot's own rebase schedule. Worst-case latency on a `behind` PR is one Dependabot rebase cycle plus one cron cycle. Increase cron frequency (or tighten `dependabot.yml` update cadence) if that matters for your repo.
 - Some PRs can sit open indefinitely if nothing advances them — for example, a lingering `dirty` merge conflict, a `behind` PR in a repo where Dependabot auto-rebase is disabled or has stopped, or a PR `blocked` on a permanently failing required check. The cron does not try to recover these; it logs the state and steps over them so the rest of the queue keeps flowing. Resolving the underlying issue is a human decision.
+
+## Maintainers
+
+- After changing files under `scripts/` or runtime dependencies in `package.json`, run `npm run build` and commit the updated files under `dist/`.
+- CI runs `npm run check:dist` to ensure the committed bundles match the current source tree.
