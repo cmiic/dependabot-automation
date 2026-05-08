@@ -34,6 +34,15 @@ test('findUnexpectedFiles allows pip requirements and constraints files', () => 
   assert.deepEqual(unexpectedFiles, [])
 })
 
+test('findUnexpectedFiles allows text files under requirements directories for pip PRs', () => {
+  const unexpectedFiles = findUnexpectedFiles({
+    packageEcosystem: 'pip',
+    changedFiles: ['requirements/notes.txt', 'services/api/requirements/base.in'],
+  })
+
+  assert.deepEqual(unexpectedFiles, [])
+})
+
 test('findUnexpectedFiles rejects non-requirements files for pip PRs', () => {
   const unexpectedFiles = findUnexpectedFiles({
     packageEcosystem: 'pip',

@@ -176,6 +176,47 @@ test('checkChangedLockfiles treats newly added lockfiles as manual review', () =
   }
 })
 
+test('checkChangedLockfiles skips deleted lockfiles', () => {
+  const repoDir = mkdtempSync(path.join(tmpdir(), 'dependabot-automation-lockfiles-'))
+
+  try {
+    git(repoDir, ['init'])
+    git(repoDir, ['config', 'user.name', 'Codex'])
+    git(repoDir, ['config', 'user.email', 'codex@example.com'])
+
+    const lockfilePath = path.join(repoDir, 'package-lock.json')
+
+    writeJson(lockfilePath, {
+      name: 'demo',
+      lockfileVersion: 3,
+      packages: {
+        '': {},
+        'node_modules/react': {
+          version: '18.2.0',
+        },
+      },
+    })
+
+    git(repoDir, ['add', 'package-lock.json'])
+    git(repoDir, ['commit', '-m', 'base'])
+    const baseSha = git(repoDir, ['rev-parse', 'HEAD'])
+
+    git(repoDir, ['rm', 'package-lock.json'])
+    git(repoDir, ['commit', '-m', 'delete lockfile'])
+    const headSha = git(repoDir, ['rev-parse', 'HEAD'])
+
+    const result = checkChangedLockfiles({ baseSha, headSha, cwd: repoDir })
+
+    assert.equal(result.ok, true)
+    assert.equal(result.status, 'clear')
+    assert.deepEqual(result.skippedFiles, ['package-lock.json:missing-in-head'])
+    assert.deepEqual(result.errors, [])
+    assert.deepEqual(result.newDependencies, [])
+  } finally {
+    rmSync(repoDir, { recursive: true, force: true })
+  }
+})
+
 test('checkChangedLockfiles does not let nested packages mask new top-level packages', () => {
   const repoDir = mkdtempSync(path.join(tmpdir(), 'dependabot-automation-lockfiles-'))
 
