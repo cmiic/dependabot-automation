@@ -4,12 +4,12 @@ import { randomUUID } from 'node:crypto'
 import { getApprovalCheckedAt, parseApprovalComment } from './lib/approval-signal.mjs'
 import { GitHubClient, GitHubRequestError, calculateAgeDays, normalizeMergeMethod } from './lib/github.mjs'
 
-function setOutput(name, value) {
+function setOutput (name, value) {
   const delimiter = `EOF_${randomUUID()}`
   appendFileSync(process.env.GITHUB_OUTPUT, `${name}<<${delimiter}\n${String(value ?? '')}\n${delimiter}\n`)
 }
 
-function extractErrorMessages(error) {
+function extractErrorMessages (error) {
   const messages = []
   if (error instanceof GitHubRequestError) {
     if (typeof error.data?.message === 'string') messages.push(error.data.message)
@@ -23,15 +23,15 @@ function extractErrorMessages(error) {
   return messages
 }
 
-function errorMessageMatches(error, pattern) {
-  return extractErrorMessages(error).some((message) => pattern.test(message))
+function errorMessageMatches (error, pattern) {
+  return extractErrorMessages(error).some(message => pattern.test(message))
 }
 
-function isNothingToAutoMergeError(error) {
+function isNothingToAutoMergeError (error) {
   return errorMessageMatches(error, /clean status|pull request is in clean|nothing to merge/i)
 }
 
-function isAutoMergeAlreadyEnabledError(error) {
+function isAutoMergeAlreadyEnabledError (error) {
   return errorMessageMatches(error, /auto[- ]?merge.*already|already has auto[- ]?merge/i)
 }
 
@@ -41,7 +41,7 @@ const mergeMethod = normalizeMergeMethod(process.env.MERGE_METHOD)
 
 const github = new GitHubClient({ token })
 const pullRequests = await github.listOpenPullRequests()
-const dependabotPullRequests = pullRequests.filter((pullRequest) => pullRequest.user?.login === 'dependabot[bot]')
+const dependabotPullRequests = pullRequests.filter(pullRequest => pullRequest.user?.login === 'dependabot[bot]')
 
 console.log(`Found ${dependabotPullRequests.length} open Dependabot PR(s)`)
 
@@ -65,9 +65,9 @@ for (const pullRequestSummary of dependabotPullRequests) {
     const pullRequest = await github.getPullRequest(pullRequestSummary.number)
     const comments = await github.listIssueComments(pullRequestSummary.number)
     const approvalComment = comments
-      .filter((comment) => comment.user?.login === 'github-actions[bot]')
-      .map((comment) => ({ comment, payload: parseApprovalComment(comment.body) }))
-      .filter((entry) => entry.payload)
+      .filter(comment => comment.user?.login === 'github-actions[bot]')
+      .map(comment => ({ comment, payload: parseApprovalComment(comment.body) }))
+      .filter(entry => entry.payload)
       .sort((left, right) => Date.parse(right.comment.updated_at) - Date.parse(left.comment.updated_at))[0]
 
     if (!approvalComment) {
@@ -190,12 +190,12 @@ setOutput('automerge-enabled-count', automergeEnabledCount)
 setOutput('already-enabled-count', alreadyEnabledCount)
 setOutput('failed-count', failedCount)
 
-async function enableAutoMerge(pullRequest, reason) {
+async function enableAutoMerge (pullRequest, reason) {
   console.log(`  Enabling auto-merge (${reason})`)
   try {
     await github.enablePullRequestAutoMerge({
       pullRequestId: pullRequest.node_id,
-      mergeMethod,
+      mergeMethod
     })
     automergeEnabledCount += 1
     console.log('  Auto-merge enabled')

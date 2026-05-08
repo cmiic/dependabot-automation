@@ -8,12 +8,12 @@ import { checkChangedPipRequirements, classifyChangedPipFiles } from './lib/pip-
 import { findUnexpectedFiles, listChangedFiles, extractActionOwners } from './lib/pr-changes.mjs'
 import { checkChangedUvLockfiles } from './lib/uv-lockfiles.mjs'
 
-function setOutput(name, value) {
+function setOutput (name, value) {
   const delimiter = `EOF_${randomUUID()}`
   appendFileSync(process.env.GITHUB_OUTPUT, `${name}<<${delimiter}\n${String(value ?? '')}\n${delimiter}\n`)
 }
 
-function writeOutputs(outputs) {
+function writeOutputs (outputs) {
   for (const [name, value] of Object.entries(outputs)) {
     setOutput(name, value)
   }
@@ -23,18 +23,18 @@ const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'))
 const pullRequest = event.pull_request
 
 const outputs = {
-  candidate: 'false',
+  'candidate': 'false',
   'quarantine-passed': 'false',
   'automerge-enabled': 'false',
-  reason: 'not-pull-request',
+  'reason': 'not-pull-request',
   'package-ecosystem': '',
   'update-type': '',
   'age-days': '0',
   'dependency-file-status': 'skipped',
-  'lockfile-status': 'skipped',
+  'lockfile-status': 'skipped'
 }
 
-function setDependencyFileStatus(status) {
+function setDependencyFileStatus (status) {
   outputs['dependency-file-status'] = status
   outputs['lockfile-status'] = status
 }
@@ -75,9 +75,9 @@ if (!allowedEcosystems.has(packageEcosystem)) {
 }
 
 if (
-  candidate &&
-  updateType !== 'version-update:semver-patch' &&
-  updateType !== 'version-update:semver-minor'
+  candidate
+  && updateType !== 'version-update:semver-patch'
+  && updateType !== 'version-update:semver-minor'
 ) {
   candidate = false
   reason = `unsupported-update-type:${updateType || 'unknown'}`
@@ -87,20 +87,20 @@ if (
 if (candidate) {
   const changedFiles = listChangedFiles({
     baseSha: pullRequest.base.sha,
-    headSha: pullRequest.head.sha,
+    headSha: pullRequest.head.sha
   })
   pipFileClassification = packageEcosystem === 'pip'
     ? classifyChangedPipFiles({
         baseSha: pullRequest.base.sha,
         headSha: pullRequest.head.sha,
-        changedFiles,
+        changedFiles
       })
     : null
   const unexpectedFiles = pipFileClassification
     ? pipFileClassification.unexpectedFiles
     : findUnexpectedFiles({
         packageEcosystem,
-        changedFiles,
+        changedFiles
       })
 
   if (unexpectedFiles.length > 0) {
@@ -125,7 +125,7 @@ if (candidate && packageEcosystem === 'github_actions') {
       reason = 'missing-action-dependency-names'
       console.log('  Trusted action owners check failed: no dependency names available.')
     } else {
-      const untrustedOwners = [...owners].filter((owner) => !trustedActionOwners.has(owner))
+      const untrustedOwners = [...owners].filter(owner => !trustedActionOwners.has(owner))
 
       if (untrustedOwners.length > 0) {
         candidate = false
@@ -148,7 +148,7 @@ if (candidate && packageEcosystem === 'npm_and_yarn') {
 
   const lockfileResult = checkChangedLockfiles({
     baseSha: pullRequest.base.sha,
-    headSha: pullRequest.head.sha,
+    headSha: pullRequest.head.sha
   })
 
   setDependencyFileStatus(lockfileResult.status)
@@ -199,7 +199,7 @@ if (candidate && packageEcosystem === 'uv') {
 
   const lockfileResult = checkChangedUvLockfiles({
     baseSha: pullRequest.base.sha,
-    headSha: pullRequest.head.sha,
+    headSha: pullRequest.head.sha
   })
 
   setDependencyFileStatus(lockfileResult.status)
@@ -243,7 +243,7 @@ if (candidate && packageEcosystem === 'pip') {
   const requirementsResult = checkChangedPipRequirements({
     baseSha: pullRequest.base.sha,
     headSha: pullRequest.head.sha,
-    changedFiles: pipFileClassification?.requirementFiles,
+    changedFiles: pipFileClassification?.requirementFiles
   })
 
   setDependencyFileStatus(requirementsResult.status)
@@ -282,15 +282,15 @@ outputs.candidate = candidate ? 'true' : 'false'
 const github = new GitHubClient({ token })
 const existingComments = await github.listIssueComments(pullRequest.number)
 const existingApprovalComment = existingComments
-  .filter((comment) => comment.user?.login === 'github-actions[bot]')
-  .map((comment) => ({ comment, payload: parseApprovalComment(comment.body) }))
-  .filter((entry) => entry.payload)
+  .filter(comment => comment.user?.login === 'github-actions[bot]')
+  .map(comment => ({ comment, payload: parseApprovalComment(comment.body) }))
+  .filter(entry => entry.payload)
   .sort((left, right) => Date.parse(right.comment.updated_at) - Date.parse(left.comment.updated_at))[0]
 
 const checkedAt = resolveApprovalCheckedAt({
   existingPayload: existingApprovalComment?.payload,
   sha: pullRequest.head.sha,
-  dependencyKey,
+  dependencyKey
 })
 const ageDays = calculateAgeDays(checkedAt)
 const quarantinePassed = ageDays >= quarantineDays
@@ -311,7 +311,7 @@ const approvalCommentBody = buildApprovalComment({
   dependencyFileStatus: outputs['dependency-file-status'],
   lockfileStatus: outputs['lockfile-status'],
   dependencyKey,
-  checkedAt,
+  checkedAt
 })
 
 if (existingApprovalComment) {

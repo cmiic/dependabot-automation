@@ -7,19 +7,19 @@ import test from 'node:test'
 
 import { checkChangedUvLockfiles, extractDependencies } from '../scripts/lib/uv-lockfiles.mjs'
 
-function git(cwd, args) {
+function git (cwd, args) {
   return execFileSync('git', args, {
     cwd,
     encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: ['ignore', 'pipe', 'pipe']
   }).trim()
 }
 
-function writeText(filePath, content) {
+function writeText (filePath, content) {
   writeFileSync(filePath, content)
 }
 
-function baseUvLock(extraPackages = '') {
+function baseUvLock (extraPackages = '') {
   return [
     'version = 1',
     'revision = 3',
@@ -40,13 +40,13 @@ function baseUvLock(extraPackages = '') {
     'version = "2.31.0"',
     'source = { registry = "https://pypi.org/simple" }',
     extraPackages,
-    '',
+    ''
   ].join('\n')
 }
 
 test('extractDependencies supports uv lockfiles with package entries', () => {
   const dependencies = extractDependencies({
-    package: [{ name: 'demo' }, { name: 'requests' }, { name: 'urllib3' }],
+    package: [{ name: 'demo' }, { name: 'requests' }, { name: 'urllib3' }]
   })
 
   assert.deepEqual([...dependencies].sort(), ['demo', 'requests', 'urllib3'])
@@ -54,7 +54,7 @@ test('extractDependencies supports uv lockfiles with package entries', () => {
 
 test('extractDependencies rejects unsupported uv lockfile formats', () => {
   assert.throws(() => extractDependencies({ packages: [] }), {
-    message: 'unsupported-lockfile-format: expected lockfile.package array',
+    message: 'unsupported-lockfile-format: expected lockfile.package array'
   })
 })
 
@@ -79,8 +79,8 @@ test('checkChangedUvLockfiles reports newly introduced dependencies in uv.lock',
         '[[package]]',
         'name = "urllib3"',
         'version = "2.2.1"',
-        'source = { registry = "https://pypi.org/simple" }',
-      ].join('\n')),
+        'source = { registry = "https://pypi.org/simple" }'
+      ].join('\n'))
     )
     git(repoDir, ['commit', '-am', 'add urllib3'])
     const headSha = git(repoDir, ['rev-parse', 'HEAD'])
@@ -126,8 +126,8 @@ test('checkChangedUvLockfiles ignores version-only updates', () => {
         'name = "requests"',
         'version = "2.32.0"',
         'source = { registry = "https://pypi.org/simple" }',
-        '',
-      ].join('\n'),
+        ''
+      ].join('\n')
     )
     git(repoDir, ['commit', '-am', 'bump requests'])
     const headSha = git(repoDir, ['rev-parse', 'HEAD'])

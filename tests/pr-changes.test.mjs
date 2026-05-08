@@ -10,8 +10,8 @@ test('findUnexpectedFiles rejects non-manifest files for npm_and_yarn PRs', () =
       'package.json',
       'packages/web/package-lock.json',
       'pnpm-lock.yaml',
-      'src/server.js',
-    ],
+      'src/server.js'
+    ]
   })
 
   assert.deepEqual(unexpectedFiles, ['src/server.js'])
@@ -20,7 +20,7 @@ test('findUnexpectedFiles rejects non-manifest files for npm_and_yarn PRs', () =
 test('findUnexpectedFiles allows pyproject.toml and uv.lock for uv PRs', () => {
   const unexpectedFiles = findUnexpectedFiles({
     packageEcosystem: 'uv',
-    changedFiles: ['pyproject.toml', 'uv.lock', 'services/api/pyproject.toml'],
+    changedFiles: ['pyproject.toml', 'uv.lock', 'services/api/pyproject.toml']
   })
 
   assert.deepEqual(unexpectedFiles, [])
@@ -29,7 +29,7 @@ test('findUnexpectedFiles allows pyproject.toml and uv.lock for uv PRs', () => {
 test('findUnexpectedFiles rejects unrelated files for uv PRs', () => {
   const unexpectedFiles = findUnexpectedFiles({
     packageEcosystem: 'uv',
-    changedFiles: ['pyproject.toml', 'uv.lock', 'requirements.txt', 'src/app.py'],
+    changedFiles: ['pyproject.toml', 'uv.lock', 'requirements.txt', 'src/app.py']
   })
 
   assert.deepEqual(unexpectedFiles, ['requirements.txt', 'src/app.py'])
@@ -45,8 +45,8 @@ test('findUnexpectedFiles allows pip requirements and constraints files', () => 
       'constraints.txt',
       'base-constraints.in',
       'requirements/prod.txt',
-      'services/api/requirements/base.in',
-    ],
+      'services/api/requirements/base.in'
+    ]
   })
 
   assert.deepEqual(unexpectedFiles, [])
@@ -55,7 +55,7 @@ test('findUnexpectedFiles allows pip requirements and constraints files', () => 
 test('findUnexpectedFiles allows text files under requirements directories for pip PRs', () => {
   const unexpectedFiles = findUnexpectedFiles({
     packageEcosystem: 'pip',
-    changedFiles: ['requirements/notes.txt', 'services/api/requirements/base.in'],
+    changedFiles: ['requirements/notes.txt', 'services/api/requirements/base.in']
   })
 
   assert.deepEqual(unexpectedFiles, [])
@@ -64,7 +64,7 @@ test('findUnexpectedFiles allows text files under requirements directories for p
 test('findUnexpectedFiles rejects non-requirements files for pip PRs', () => {
   const unexpectedFiles = findUnexpectedFiles({
     packageEcosystem: 'pip',
-    changedFiles: ['requirements.txt', 'pyproject.toml', 'setup.py', 'Pipfile', 'src/app.py'],
+    changedFiles: ['requirements.txt', 'pyproject.toml', 'setup.py', 'Pipfile', 'src/app.py']
   })
 
   assert.deepEqual(unexpectedFiles, ['pyproject.toml', 'setup.py', 'Pipfile', 'src/app.py'])
@@ -76,8 +76,8 @@ test('findUnexpectedFiles allows workflow and action metadata updates for github
     changedFiles: [
       '.github/workflows/ci.yml',
       'merge/action.yml',
-      'cron/action.yaml',
-    ],
+      'cron/action.yaml'
+    ]
   })
 
   assert.deepEqual(unexpectedFiles, [])
@@ -86,7 +86,7 @@ test('findUnexpectedFiles allows workflow and action metadata updates for github
 test('findUnexpectedFiles rejects unrelated files for github_actions PRs', () => {
   const unexpectedFiles = findUnexpectedFiles({
     packageEcosystem: 'github_actions',
-    changedFiles: ['.github/workflows/ci.yml', 'src/index.js'],
+    changedFiles: ['.github/workflows/ci.yml', 'src/index.js']
   })
 
   assert.deepEqual(unexpectedFiles, ['src/index.js'])
@@ -98,8 +98,8 @@ test('findUnexpectedFiles allows devcontainer config files and Dockerfiles', () 
     changedFiles: [
       '.devcontainer/devcontainer.json',
       '.devcontainer/Dockerfile',
-      'services/api/.devcontainer/docker-compose.yaml',
-    ],
+      'services/api/.devcontainer/docker-compose.yaml'
+    ]
   })
 
   assert.deepEqual(unexpectedFiles, [])
@@ -112,8 +112,8 @@ test('findUnexpectedFiles allows Dockerfiles and compose files for docker PRs', 
       'Dockerfile',
       'deploy/api.Dockerfile',
       'docker-compose.yml',
-      'infra/compose.yaml',
-    ],
+      'infra/compose.yaml'
+    ]
   })
 
   assert.deepEqual(unexpectedFiles, [])
@@ -123,7 +123,7 @@ test('findUnexpectedFiles returns all files for unknown ecosystems', () => {
   const changedFiles = ['README.md']
   const unexpectedFiles = findUnexpectedFiles({
     packageEcosystem: 'terraform',
-    changedFiles,
+    changedFiles
   })
 
   assert.deepEqual(unexpectedFiles, changedFiles)
@@ -136,7 +136,7 @@ test('extractActionOwners extracts owner from a single action', () => {
 test('extractActionOwners extracts unique owners from multiple actions', () => {
   assert.deepEqual(
     extractActionOwners('actions/checkout, github/codeql-action, actions/setup-node'),
-    new Set(['actions', 'github']),
+    new Set(['actions', 'github'])
   )
 })
 

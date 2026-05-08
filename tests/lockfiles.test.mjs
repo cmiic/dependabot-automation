@@ -7,15 +7,15 @@ import test from 'node:test'
 
 import { checkChangedLockfiles, extractDependencies } from '../scripts/lib/lockfiles.mjs'
 
-function git(cwd, args) {
+function git (cwd, args) {
   return execFileSync('git', args, {
     cwd,
     encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: ['ignore', 'pipe', 'pipe']
   }).trim()
 }
 
-function writeJson(filePath, value) {
+function writeJson (filePath, value) {
   writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`)
 }
 
@@ -24,8 +24,8 @@ test('extractDependencies supports lockfiles with packages entries', () => {
     packages: {
       '': {},
       'node_modules/react': {},
-      'node_modules/foo/node_modules/bar': {},
-    },
+      'node_modules/foo/node_modules/bar': {}
+    }
   })
 
   assert.deepEqual([...dependencies].sort(), ['foo/node_modules/bar', 'react'])
@@ -33,7 +33,7 @@ test('extractDependencies supports lockfiles with packages entries', () => {
 
 test('extractDependencies rejects unsupported lockfile formats', () => {
   assert.throws(() => extractDependencies({ dependencies: { react: { version: '18.0.0' } } }), {
-    message: 'unsupported-lockfile-format: expected lockfile.packages object',
+    message: 'unsupported-lockfile-format: expected lockfile.packages object'
   })
 })
 
@@ -53,9 +53,9 @@ test('checkChangedLockfiles reports newly introduced dependencies in changed loc
       packages: {
         '': {},
         'node_modules/react': {
-          version: '18.2.0',
-        },
-      },
+          version: '18.2.0'
+        }
+      }
     })
 
     git(repoDir, ['add', 'package-lock.json'])
@@ -68,12 +68,12 @@ test('checkChangedLockfiles reports newly introduced dependencies in changed loc
       packages: {
         '': {},
         'node_modules/react': {
-          version: '18.3.0',
+          version: '18.3.0'
         },
         'node_modules/vite': {
-          version: '6.0.0',
-        },
-      },
+          version: '6.0.0'
+        }
+      }
     })
 
     git(repoDir, ['commit', '-am', 'add vite'])
@@ -105,9 +105,9 @@ test('checkChangedLockfiles ignores version-only updates', () => {
       packages: {
         '': {},
         'node_modules/react': {
-          version: '18.2.0',
-        },
-      },
+          version: '18.2.0'
+        }
+      }
     })
 
     git(repoDir, ['add', 'package-lock.json'])
@@ -120,9 +120,9 @@ test('checkChangedLockfiles ignores version-only updates', () => {
       packages: {
         '': {},
         'node_modules/react': {
-          version: '18.3.0',
-        },
-      },
+          version: '18.3.0'
+        }
+      }
     })
 
     git(repoDir, ['commit', '-am', 'bump react'])
@@ -157,9 +157,9 @@ test('checkChangedLockfiles treats newly added lockfiles as manual review', () =
       packages: {
         '': {},
         'node_modules/react': {
-          version: '18.2.0',
-        },
-      },
+          version: '18.2.0'
+        }
+      }
     })
 
     git(repoDir, ['add', 'package-lock.json'])
@@ -222,9 +222,9 @@ test('checkChangedLockfiles treats deleted lockfiles as manual review', () => {
       packages: {
         '': {},
         'node_modules/react': {
-          version: '18.2.0',
-        },
-      },
+          version: '18.2.0'
+        }
+      }
     })
 
     git(repoDir, ['add', 'package-lock.json'])
@@ -263,12 +263,12 @@ test('checkChangedLockfiles does not let nested packages mask new top-level pack
       packages: {
         '': {},
         'node_modules/innocent': {
-          version: '1.0.0',
+          version: '1.0.0'
         },
         'node_modules/innocent/node_modules/malicious': {
-          version: '1.0.0',
-        },
-      },
+          version: '1.0.0'
+        }
+      }
     })
 
     git(repoDir, ['add', 'package-lock.json'])
@@ -281,12 +281,12 @@ test('checkChangedLockfiles does not let nested packages mask new top-level pack
       packages: {
         '': {},
         'node_modules/innocent': {
-          version: '1.0.0',
+          version: '1.0.0'
         },
         'node_modules/malicious': {
-          version: '1.0.0',
-        },
-      },
+          version: '1.0.0'
+        }
+      }
     })
 
     git(repoDir, ['commit', '-am', 'promote malicious'])

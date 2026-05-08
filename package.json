@@ -12,9 +12,19 @@
     "test:lockfiles": "node --test tests/lockfiles.test.mjs",
     "test:pip": "node --test tests/pip-requirements.test.mjs",
     "test:pr-changes": "node --test tests/pr-changes.test.mjs",
-    "test:uv": "node --test tests/uv-lockfiles.test.mjs"
+    "test:uv": "node --test tests/uv-lockfiles.test.mjs",
+    "lint": "npm run lint:js && npm run lint:md",
+    "lint:js": "eslint .",
+    "lint:md": "markdownlint-cli2"
   },
   "dependencies": {
     "toml": "4.1.1"
+  },
+  "devDependencies": {
+    "@stylistic/eslint-plugin": "5.10.0",
+    "@eslint/js": "10.0.1",
+    "eslint": "10.2.1",
+    "globals": "17.6.0",
+    "markdownlint-cli2": "0.22.1"
   }
 }

@@ -9,23 +9,23 @@ import {
   checkChangedPipRequirements,
   classifyChangedPipFiles,
   extractRequirements,
-  parseRequirementLine,
+  parseRequirementLine
 } from '../scripts/lib/pip-requirements.mjs'
 
-function git(cwd, args) {
+function git (cwd, args) {
   return execFileSync('git', args, {
     cwd,
     encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: ['ignore', 'pipe', 'pipe']
   }).trim()
 }
 
-function writeText(filePath, content) {
+function writeText (filePath, content) {
   mkdirSync(path.dirname(filePath), { recursive: true })
   writeFileSync(filePath, content)
 }
 
-function initRepo() {
+function initRepo () {
   const repoDir = mkdtempSync(path.join(tmpdir(), 'dependabot-automation-pip-'))
   git(repoDir, ['init'])
   git(repoDir, ['config', 'user.name', 'Codex'])
@@ -43,7 +43,7 @@ test('parseRequirementLine canonicalizes package names and simple specifier meta
     extras: 'security,standard',
     marker: 'python_version >= "3.11"',
     key: 'django-rest-framework|security,standard|==|python_version >= "3.11"',
-    lineNumber: 1,
+    lineNumber: 1
   })
 })
 
@@ -70,7 +70,7 @@ test('checkChangedPipRequirements allows version-only updates for simple require
         'Requests==2.31.0',
         'Django>=4.2 ; python_version >= "3.11"',
         'uvicorn[standard]~=0.28.0',
-        '',
+        ''
       ].join('\n')
     )
 
@@ -84,7 +84,7 @@ test('checkChangedPipRequirements allows version-only updates for simple require
         'requests==2.32.0 # via app',
         'django>=4.3; python_version >= "3.11"',
         'uvicorn[standard]~=0.29.0',
-        '',
+        ''
       ].join('\n')
     )
 
@@ -139,7 +139,7 @@ test('checkChangedPipRequirements treats dependency removals as manual review', 
       [
         'requests==2.31.0',
         'django==4.2.0',
-        '',
+        ''
       ].join('\n')
     )
     git(repoDir, ['add', 'requirements.txt'])
@@ -150,7 +150,7 @@ test('checkChangedPipRequirements treats dependency removals as manual review', 
       requirementsPath,
       [
         'requests==2.32.0',
-        '',
+        ''
       ].join('\n')
     )
     git(repoDir, ['commit', '-am', 'remove dependency'])
@@ -179,7 +179,7 @@ test('checkChangedPipRequirements treats changed operators markers and extras as
         'requests==2.31.0',
         'django>=4.2; python_version >= "3.11"',
         'uvicorn[standard]~=0.28.0',
-        '',
+        ''
       ].join('\n')
     )
     git(repoDir, ['add', 'requirements.txt'])
@@ -192,7 +192,7 @@ test('checkChangedPipRequirements treats changed operators markers and extras as
         'requests>=2.32.0',
         'django>=4.3; python_version >= "3.12"',
         'uvicorn[watchfiles]~=0.29.0',
-        '',
+        ''
       ].join('\n')
     )
     git(repoDir, ['commit', '-am', 'change unsupported requirement metadata'])
@@ -206,7 +206,7 @@ test('checkChangedPipRequirements treats changed operators markers and extras as
     assert.deepEqual(result.errors, [
       'requirements.txt:requirement-variants-changed:django',
       'requirements.txt:requirement-variants-changed:requests',
-      'requirements.txt:requirement-variants-changed:uvicorn',
+      'requirements.txt:requirement-variants-changed:uvicorn'
     ])
   } finally {
     rmSync(repoDir, { recursive: true, force: true })
@@ -235,7 +235,7 @@ test('checkChangedPipRequirements treats changed range requirements as manual re
     assert.deepEqual(result.newDependencies, [])
     assert.deepEqual(result.errors, [
       'requirements.txt:unsupported-requirement-removed:flask>=2,<3',
-      'requirements.txt:unsupported-requirement-added:flask>=2,<4',
+      'requirements.txt:unsupported-requirement-added:flask>=2,<4'
     ])
   } finally {
     rmSync(repoDir, { recursive: true, force: true })
@@ -253,7 +253,7 @@ test('checkChangedPipRequirements treats removing one of multiple requirement va
       [
         'requests==2.31.0',
         'requests==2.31.0; python_version < "3.12"',
-        '',
+        ''
       ].join('\n')
     )
     git(repoDir, ['add', 'requirements.txt'])
@@ -264,7 +264,7 @@ test('checkChangedPipRequirements treats removing one of multiple requirement va
       requirementsPath,
       [
         'requests==2.32.0',
-        '',
+        ''
       ].join('\n')
     )
     git(repoDir, ['commit', '-am', 'remove variant'])
@@ -303,7 +303,7 @@ test('checkChangedPipRequirements treats newly added complex requirement lines a
         '-r other-requirements.txt',
         '--index-url https://example.com/simple',
         'barepkg',
-        '',
+        ''
       ].join('\n')
     )
     git(repoDir, ['commit', '-am', 'add complex requirement lines'])
@@ -321,7 +321,7 @@ test('checkChangedPipRequirements treats newly added complex requirement lines a
       'requirements.txt:unsupported-requirement-added:-r other-requirements.txt',
       'requirements.txt:unsupported-requirement-added:--index-url https://example.com/simple',
       'requirements.txt:unsupported-requirement-added:./localpkg',
-      'requirements.txt:unsupported-requirement-added:git+https://example.com/vcs.git#egg=vcs',
+      'requirements.txt:unsupported-requirement-added:git+https://example.com/vcs.git#egg=vcs'
     ])
   } finally {
     rmSync(repoDir, { recursive: true, force: true })

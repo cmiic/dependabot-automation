@@ -7,11 +7,11 @@ import { listChangedFiles, pathExistsInGitRevision, runGit } from './pr-changes.
 
 const UV_LOCKFILE_BASENAME = 'uv.lock'
 
-function isUvLockfile(filePath) {
+function isUvLockfile (filePath) {
   return path.basename(filePath) === UV_LOCKFILE_BASENAME
 }
 
-function addDependenciesFromPackages(packages, dependencies) {
+function addDependenciesFromPackages (packages, dependencies) {
   for (const pkg of packages) {
     if (!pkg || typeof pkg !== 'object' || typeof pkg.name !== 'string' || pkg.name.trim() === '') {
       throw new Error('unsupported-lockfile-format: expected each package entry to have a name')
@@ -21,11 +21,11 @@ function addDependenciesFromPackages(packages, dependencies) {
   }
 }
 
-function parseUvLock(content) {
+function parseUvLock (content) {
   return toml.parse(content)
 }
 
-export function extractDependencies(lockfile) {
+export function extractDependencies (lockfile) {
   if (!Array.isArray(lockfile?.package)) {
     throw new Error('unsupported-lockfile-format: expected lockfile.package array')
   }
@@ -36,7 +36,7 @@ export function extractDependencies(lockfile) {
   return dependencies
 }
 
-function getErrorMessage(error) {
+function getErrorMessage (error) {
   const message = error instanceof Error ? error.message : String(error)
   const normalized = message.replace(/\s+/g, ' ').trim()
 
@@ -47,15 +47,15 @@ function getErrorMessage(error) {
   return `${normalized.slice(0, 237)}...`
 }
 
-export function findChangedUvLockfiles({ baseSha, headSha, changedFiles, cwd = process.cwd() }) {
+export function findChangedUvLockfiles ({ baseSha, headSha, changedFiles, cwd = process.cwd() }) {
   const allChangedFiles = changedFiles ?? listChangedFiles({ baseSha, headSha, cwd })
 
   return {
-    changedFiles: allChangedFiles.filter(isUvLockfile),
+    changedFiles: allChangedFiles.filter(isUvLockfile)
   }
 }
 
-export function checkChangedUvLockfiles({ baseSha, headSha, cwd = process.cwd() }) {
+export function checkChangedUvLockfiles ({ baseSha, headSha, cwd = process.cwd() }) {
   const { changedFiles } = findChangedUvLockfiles({ baseSha, headSha, cwd })
   const newDependencies = []
   const errors = []
@@ -120,6 +120,6 @@ export function checkChangedUvLockfiles({ baseSha, headSha, cwd = process.cwd() 
     changedFiles,
     skippedFiles,
     newDependencies,
-    errors,
+    errors
   }
 }

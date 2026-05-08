@@ -3,14 +3,14 @@ import path from 'node:path'
 
 import { isPipRequirementsFile, listChangedFiles, pathExistsInGitRevision, runGit } from './pr-changes.mjs'
 
-const SIMPLE_REQUIREMENT_PATTERN =
-  /^([A-Za-z0-9][A-Za-z0-9._-]*)(\s*\[[A-Za-z0-9._,\-\s]+\])?\s*(===|==|~=|!=|<=|>=|<|>)\s*([^,;\s\\]+)\s*(?:;\s*(.+))?$/
+const SIMPLE_REQUIREMENT_PATTERN
+  = /^([A-Za-z0-9][A-Za-z0-9._-]*)(\s*\[[A-Za-z0-9._,\-\s]+\])?\s*(===|==|~=|!=|<=|>=|<|>)\s*([^,;\s\\]+)\s*(?:;\s*(.+))?$/
 
-function normalizePackageName(name) {
+function normalizePackageName (name) {
   return name.toLowerCase().replace(/[-_.]+/g, '-')
 }
 
-function normalizeExtras(extras) {
+function normalizeExtras (extras) {
   if (!extras) {
     return ''
   }
@@ -18,21 +18,21 @@ function normalizeExtras(extras) {
   return extras
     .slice(extras.indexOf('[') + 1, extras.lastIndexOf(']'))
     .split(',')
-    .map((extra) => normalizePackageName(extra.trim()))
+    .map(extra => normalizePackageName(extra.trim()))
     .filter(Boolean)
     .sort()
     .join(',')
 }
 
-function normalizeMarker(marker) {
+function normalizeMarker (marker) {
   return marker ? marker.replace(/\s+/g, ' ').trim() : ''
 }
 
-function normalizePath(filePath) {
+function normalizePath (filePath) {
   return filePath.replace(/\\/g, '/')
 }
 
-function isNamedPipRequirementsFile(filePath) {
+function isNamedPipRequirementsFile (filePath) {
   const basename = path.basename(normalizePath(filePath)).toLowerCase()
 
   if (!/\.(txt|in)$/i.test(basename)) {
@@ -40,25 +40,25 @@ function isNamedPipRequirementsFile(filePath) {
   }
 
   return (
-    /^requirements.*\.(txt|in)$/i.test(basename) ||
-    /^.+-requirements\.(txt|in)$/i.test(basename) ||
-    /^constraints.*\.(txt|in)$/i.test(basename) ||
-    /^.+-constraints\.(txt|in)$/i.test(basename)
+    /^requirements.*\.(txt|in)$/i.test(basename)
+    || /^.+-requirements\.(txt|in)$/i.test(basename)
+    || /^constraints.*\.(txt|in)$/i.test(basename)
+    || /^.+-constraints\.(txt|in)$/i.test(basename)
   )
 }
 
-function isAmbiguousRequirementsDirectoryFile(filePath) {
+function isAmbiguousRequirementsDirectoryFile (filePath) {
   const normalized = normalizePath(filePath)
   const basename = path.basename(normalized).toLowerCase()
 
   return (
-    /\.(txt|in)$/i.test(basename) &&
-    (normalized.startsWith('requirements/') || normalized.includes('/requirements/')) &&
-    !isNamedPipRequirementsFile(filePath)
+    /\.(txt|in)$/i.test(basename)
+    && (normalized.startsWith('requirements/') || normalized.includes('/requirements/'))
+    && !isNamedPipRequirementsFile(filePath)
   )
 }
 
-function stripInlineComment(line) {
+function stripInlineComment (line) {
   for (let index = 0; index < line.length; index += 1) {
     if (line[index] === '#' && (index === 0 || /\s/.test(line[index - 1]))) {
       return line.slice(0, index).trimEnd()
@@ -68,16 +68,16 @@ function stripInlineComment(line) {
   return line
 }
 
-function complexLine(content, lineNumber, reason) {
+function complexLine (content, lineNumber, reason) {
   return {
     type: 'complex',
     content: content.replace(/\s+/g, ' ').trim(),
     lineNumber,
-    reason,
+    reason
   }
 }
 
-export function parseRequirementLine(line, lineNumber = 1) {
+export function parseRequirementLine (line, lineNumber = 1) {
   const content = stripInlineComment(line).trim()
 
   if (!content) {
@@ -95,10 +95,10 @@ export function parseRequirementLine(line, lineNumber = 1) {
   }
 
   if (
-    lower.startsWith('-r ') ||
-    lower.startsWith('--requirement ') ||
-    lower.startsWith('-c ') ||
-    lower.startsWith('--constraint ')
+    lower.startsWith('-r ')
+    || lower.startsWith('--requirement ')
+    || lower.startsWith('-c ')
+    || lower.startsWith('--constraint ')
   ) {
     return complexLine(content, lineNumber, 'include')
   }
@@ -145,11 +145,11 @@ export function parseRequirementLine(line, lineNumber = 1) {
     extras,
     marker,
     key: `${name}|${extras}|${operator}|${marker}`,
-    lineNumber,
+    lineNumber
   }
 }
 
-export function extractRequirements(content) {
+export function extractRequirements (content) {
   const dependencies = new Set()
   const requirementKeysByName = new Map()
   const complexLines = []
@@ -176,11 +176,11 @@ export function extractRequirements(content) {
   return {
     dependencies,
     requirementKeysByName,
-    complexLines,
+    complexLines
   }
 }
 
-function setEquals(left, right) {
+function setEquals (left, right) {
   if (left.size !== right.size) {
     return false
   }
@@ -194,7 +194,7 @@ function setEquals(left, right) {
   return true
 }
 
-function buildComplexLineMap(lines) {
+function buildComplexLineMap (lines) {
   const complexLineMap = new Map()
 
   for (const line of lines) {
@@ -207,7 +207,7 @@ function buildComplexLineMap(lines) {
   return complexLineMap
 }
 
-function findComplexRequirementLineErrors({ file, baseRequirements, headRequirements }) {
+function findComplexRequirementLineErrors ({ file, baseRequirements, headRequirements }) {
   const errors = []
   const baseComplexLines = buildComplexLineMap(baseRequirements.complexLines)
   const headComplexLines = buildComplexLineMap(headRequirements.complexLines)
@@ -237,14 +237,14 @@ function findComplexRequirementLineErrors({ file, baseRequirements, headRequirem
   return errors
 }
 
-function isRecognizedRequirementsContent(content) {
+function isRecognizedRequirementsContent (content) {
   return content
     .split('\n')
     .map((line, index) => parseRequirementLine(line, index + 1))
-    .every((parsed) => parsed.type !== 'complex' || parsed.reason !== 'unparseable')
+    .every(parsed => parsed.type !== 'complex' || parsed.reason !== 'unparseable')
 }
 
-function loadAvailableChangedFileContents({ baseSha, file, cwd }) {
+function loadAvailableChangedFileContents ({ baseSha, file, cwd }) {
   const contents = []
 
   if (pathExistsInGitRevision({ revision: baseSha, filePath: file, cwd })) {
@@ -267,7 +267,7 @@ function loadAvailableChangedFileContents({ baseSha, file, cwd }) {
   return contents
 }
 
-export function classifyChangedPipFiles({ baseSha, headSha, changedFiles, cwd = process.cwd() }) {
+export function classifyChangedPipFiles ({ baseSha, headSha, changedFiles, cwd = process.cwd() }) {
   const allChangedFiles = changedFiles ?? listChangedFiles({ baseSha, headSha, cwd })
   const requirementFiles = []
   const unexpectedFiles = []
@@ -295,11 +295,11 @@ export function classifyChangedPipFiles({ baseSha, headSha, changedFiles, cwd = 
 
   return {
     requirementFiles,
-    unexpectedFiles,
+    unexpectedFiles
   }
 }
 
-function getErrorMessage(error) {
+function getErrorMessage (error) {
   const message = error instanceof Error ? error.message : String(error)
   const normalized = message.replace(/\s+/g, ' ').trim()
 
@@ -310,15 +310,15 @@ function getErrorMessage(error) {
   return `${normalized.slice(0, 237)}...`
 }
 
-export function findChangedPipRequirementFiles({ baseSha, headSha, changedFiles, cwd = process.cwd() }) {
+export function findChangedPipRequirementFiles ({ baseSha, headSha, changedFiles, cwd = process.cwd() }) {
   const allChangedFiles = changedFiles ?? listChangedFiles({ baseSha, headSha, cwd })
 
   return {
-    changedFiles: allChangedFiles.filter(isPipRequirementsFile),
+    changedFiles: allChangedFiles.filter(isPipRequirementsFile)
   }
 }
 
-export function checkChangedPipRequirements({ baseSha, headSha, changedFiles, cwd = process.cwd() }) {
+export function checkChangedPipRequirements ({ baseSha, headSha, changedFiles, cwd = process.cwd() }) {
   const { changedFiles: requirementFiles } = findChangedPipRequirementFiles({ baseSha, headSha, changedFiles, cwd })
   const newDependencies = []
   const errors = []
@@ -358,7 +358,7 @@ export function checkChangedPipRequirements({ baseSha, headSha, changedFiles, cw
 
     const dependencyNames = new Set([
       ...baseRequirements.dependencies,
-      ...headRequirements.dependencies,
+      ...headRequirements.dependencies
     ])
 
     for (const dependency of Array.from(dependencyNames).sort()) {
@@ -396,6 +396,6 @@ export function checkChangedPipRequirements({ baseSha, headSha, changedFiles, cw
     changedFiles: requirementFiles,
     skippedFiles,
     newDependencies,
-    errors,
+    errors
   }
 }

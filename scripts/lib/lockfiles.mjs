@@ -6,15 +6,15 @@ import { listChangedFiles, pathExistsInGitRevision, runGit } from './pr-changes.
 const LOCKFILE_BASENAMES = new Set(['package-lock.json', 'npm-shrinkwrap.json'])
 const UNSUPPORTED_LOCKFILE_BASENAMES = new Set(['yarn.lock', 'pnpm-lock.yaml'])
 
-function isSupportedLockfile(filePath) {
+function isSupportedLockfile (filePath) {
   return LOCKFILE_BASENAMES.has(path.basename(filePath))
 }
 
-function isUnsupportedLockfile(filePath) {
+function isUnsupportedLockfile (filePath) {
   return UNSUPPORTED_LOCKFILE_BASENAMES.has(path.basename(filePath))
 }
 
-function addDependenciesFromPackages(packages, dependencies) {
+function addDependenciesFromPackages (packages, dependencies) {
   for (const packagePath of Object.keys(packages)) {
     if (!packagePath) {
       continue
@@ -29,7 +29,7 @@ function addDependenciesFromPackages(packages, dependencies) {
   }
 }
 
-export function extractDependencies(lockfile) {
+export function extractDependencies (lockfile) {
   if (!lockfile?.packages || typeof lockfile.packages !== 'object') {
     throw new Error('unsupported-lockfile-format: expected lockfile.packages object')
   }
@@ -40,7 +40,7 @@ export function extractDependencies(lockfile) {
   return dependencies
 }
 
-function getErrorMessage(error) {
+function getErrorMessage (error) {
   const message = error instanceof Error ? error.message : String(error)
   const normalized = message.replace(/\s+/g, ' ').trim()
 
@@ -51,16 +51,16 @@ function getErrorMessage(error) {
   return `${normalized.slice(0, 237)}...`
 }
 
-export function findChangedLockfiles({ baseSha, headSha, cwd = process.cwd() }) {
+export function findChangedLockfiles ({ baseSha, headSha, cwd = process.cwd() }) {
   const changedFiles = listChangedFiles({ baseSha, headSha, cwd })
 
   return {
     changedFiles: changedFiles.filter(isSupportedLockfile),
-    unsupportedFiles: changedFiles.filter(isUnsupportedLockfile),
+    unsupportedFiles: changedFiles.filter(isUnsupportedLockfile)
   }
 }
 
-export function checkChangedLockfiles({ baseSha, headSha, cwd = process.cwd() }) {
+export function checkChangedLockfiles ({ baseSha, headSha, cwd = process.cwd() }) {
   const { changedFiles, unsupportedFiles } = findChangedLockfiles({ baseSha, headSha, cwd })
   const newDependencies = []
   const errors = []
@@ -132,6 +132,6 @@ export function checkChangedLockfiles({ baseSha, headSha, cwd = process.cwd() })
     unsupportedFiles,
     skippedFiles,
     newDependencies,
-    errors,
+    errors
   }
 }
