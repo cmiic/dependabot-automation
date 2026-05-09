@@ -4750,12 +4750,15 @@ var require_toml = __commonJS({
   }
 });
 
-// scripts/evaluate-pull-request.mjs
+// src/entrypoints/evaluate-pull-request.ts
 import { appendFileSync, readFileSync as readFileSync4 } from "node:fs";
 import { randomUUID } from "node:crypto";
 
-// scripts/lib/approval-signal.mjs
+// src/lib/approval-signal.ts
 var APPROVAL_MARKER_PREFIX = "<!-- dependabot-automation:approval ";
+function isDependencyUpdate(value) {
+  return typeof value === "object" && value !== null && typeof value.dependencyName === "string";
+}
 function buildDependencyKey(updatedDependenciesJson) {
   if (!updatedDependenciesJson) {
     return null;
@@ -4766,10 +4769,7 @@ function buildDependencyKey(updatedDependenciesJson) {
   } catch {
     return null;
   }
-  if (!Array.isArray(parsed) || parsed.length === 0) {
-    return null;
-  }
-  if (parsed.some((dep) => typeof dep?.dependencyName !== "string")) {
+  if (!Array.isArray(parsed) || parsed.length === 0 || parsed.some((entry) => !isDependencyUpdate(entry))) {
     return null;
   }
   const entries = parsed.map((dep) => `${dep.dependencyName}:${dep.prevVersion ?? ""}:${dep.newVersion ?? ""}`).sort();
@@ -4858,7 +4858,7 @@ function parseApprovalComment(body) {
   }
 }
 
-// scripts/lib/github.mjs
+// src/lib/github.ts
 var API_VERSION = "2022-11-28";
 var USER_AGENT = "cmiic-dependabot-automation";
 function parseCsvList(raw) {
@@ -4872,6 +4872,8 @@ function calculateAgeDays(createdAt, now = Date.now()) {
   return Math.floor((now - createdTs) / 864e5);
 }
 var GitHubRequestError = class extends Error {
+  status;
+  data;
   constructor(message, status, data) {
     super(message);
     this.name = "GitHubRequestError";
@@ -4880,6 +4882,11 @@ var GitHubRequestError = class extends Error {
   }
 };
 var GitHubClient = class {
+  token;
+  serverUrl;
+  graphqlUrl;
+  owner;
+  repo;
   constructor({
     token: token2,
     repository = process.env.GITHUB_REPOSITORY,
@@ -4896,6 +4903,9 @@ var GitHubClient = class {
     this.serverUrl = serverUrl.replace(/\/$/, "");
     this.graphqlUrl = (graphqlUrl || `${this.serverUrl}/graphql`).replace(/\/$/, "");
     const [owner, repo] = repository.split("/", 2);
+    if (!owner || !repo) {
+      throw new Error(`Invalid GITHUB_REPOSITORY value: ${repository}`);
+    }
     this.owner = owner;
     this.repo = repo;
   }
@@ -5019,11 +5029,11 @@ var GitHubClient = class {
   }
 };
 
-// scripts/lib/lockfiles.mjs
+// src/lib/lockfiles.ts
 import { existsSync, readFileSync } from "node:fs";
 import path2 from "node:path";
 
-// scripts/lib/pr-changes.mjs
+// src/lib/pr-changes.ts
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 var NPM_AND_YARN_BASENAMES = /* @__PURE__ */ new Set([
@@ -5120,7 +5130,9 @@ function listChangedFiles({ baseSha, headSha, cwd = process.cwd() }) {
   return output.split("\n").map((line) => normalizePath(line.trim())).filter(Boolean);
 }
 function extractActionOwners(dependencyNames) {
-  if (!dependencyNames) return /* @__PURE__ */ new Set();
+  if (!dependencyNames) {
+    return /* @__PURE__ */ new Set();
+  }
   return new Set(
     dependencyNames.split(",").map((name) => name.trim()).filter(Boolean).map((name) => name.split("/")[0]).filter(Boolean)
   );
@@ -5133,7 +5145,7 @@ function findUnexpectedFiles({ packageEcosystem: packageEcosystem2, changedFiles
   return changedFiles.filter((filePath) => !matcher(filePath));
 }
 
-// scripts/lib/lockfiles.mjs
+// src/lib/lockfiles.ts
 var LOCKFILE_BASENAMES = /* @__PURE__ */ new Set(["package-lock.json", "npm-shrinkwrap.json"]);
 var UNSUPPORTED_LOCKFILE_BASENAMES = /* @__PURE__ */ new Set(["yarn.lock", "pnpm-lock.yaml"]);
 function isSupportedLockfile(filePath) {
@@ -5148,14 +5160,18 @@ function addDependenciesFromPackages(packages, dependencies) {
       continue;
     }
     const match = packagePath.match(/node_modules\/(.+)$/);
-    if (!match) {
+    const dependencyPath = match?.[1];
+    if (!dependencyPath) {
       continue;
     }
-    dependencies.add(match[1]);
+    dependencies.add(dependencyPath);
   }
 }
+function hasPackagesObject(lockfile) {
+  return typeof lockfile === "object" && lockfile !== null && "packages" in lockfile && typeof lockfile.packages === "object" && lockfile.packages !== null;
+}
 function extractDependencies(lockfile) {
-  if (!lockfile?.packages || typeof lockfile.packages !== "object") {
+  if (!hasPackagesObject(lockfile)) {
     throw new Error("unsupported-lockfile-format: expected lockfile.packages object");
   }
   const dependencies = /* @__PURE__ */ new Set();
@@ -5206,7 +5222,7 @@ function checkChangedLockfiles({ baseSha, headSha, cwd = process.cwd() }) {
     try {
       headContent = readFileSync(fullPath, "utf8");
     } catch (error) {
-      errors.push(`${file}:read-failed:${error.message}`);
+      errors.push(`${file}:read-failed:${getErrorMessage(error)}`);
       continue;
     }
     try {
@@ -5220,7 +5236,7 @@ function checkChangedLockfiles({ baseSha, headSha, cwd = process.cwd() }) {
         }
       }
     } catch (error) {
-      errors.push(`${file}:parse-failed:${error.message}`);
+      errors.push(`${file}:parse-failed:${getErrorMessage(error)}`);
     }
   }
   let status = "clear";
@@ -5244,7 +5260,7 @@ function checkChangedLockfiles({ baseSha, headSha, cwd = process.cwd() }) {
   };
 }
 
-// scripts/lib/pip-requirements.mjs
+// src/lib/pip-requirements.ts
 import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:fs";
 import path3 from "node:path";
 var SIMPLE_REQUIREMENT_PATTERN = /^([A-Za-z0-9][A-Za-z0-9._-]*)(\s*\[[A-Za-z0-9._,\-\s]+\])?\s*(===|==|~=|!=|<=|>=|<|>)\s*([^,;\s\\]+)\s*(?:;\s*(.+))?$/;
@@ -5277,7 +5293,7 @@ function isAmbiguousRequirementsDirectoryFile(filePath) {
 }
 function stripInlineComment(line) {
   for (let index = 0; index < line.length; index += 1) {
-    if (line[index] === "#" && (index === 0 || /\s/.test(line[index - 1]))) {
+    if (line[index] === "#" && (index === 0 || /\s/.test(line[index - 1] ?? ""))) {
       return line.slice(0, index).trimEnd();
     }
   }
@@ -5328,7 +5344,11 @@ function parseRequirementLine(line, lineNumber = 1) {
   if (!match) {
     return complexLine(content, lineNumber, "unparseable");
   }
-  const [, rawName, rawExtras, operator, version, rawMarker] = match;
+  const rawName = match[1];
+  const rawExtras = match[2];
+  const operator = match[3];
+  const version = match[4];
+  const rawMarker = match[5];
   const name = normalizePackageName(rawName);
   const extras = normalizeExtras(rawExtras);
   const marker = normalizeMarker(rawMarker);
@@ -5401,7 +5421,10 @@ function findComplexRequirementLineErrors({ file, baseRequirements, headRequirem
     if (baseCount === headCount) {
       continue;
     }
-    const descriptor = headEntry?.line ?? baseEntry.line;
+    const descriptor = headEntry?.line ?? baseEntry?.line;
+    if (!descriptor) {
+      continue;
+    }
     for (let index = 0; index < Math.max(baseCount - headCount, 0); index += 1) {
       errors.push(`${file}:unsupported-requirement-removed:${descriptor.content}`);
     }
@@ -5498,7 +5521,7 @@ function checkChangedPipRequirements({ baseSha, headSha, changedFiles, cwd = pro
     try {
       headContent = readFileSync2(fullPath, "utf8");
     } catch (error) {
-      errors.push(`${file}:read-failed:${error.message}`);
+      errors.push(`${file}:read-failed:${getErrorMessage2(error)}`);
       continue;
     }
     const baseRequirements = extractRequirements(baseContent);
@@ -5542,7 +5565,7 @@ function checkChangedPipRequirements({ baseSha, headSha, changedFiles, cwd = pro
   };
 }
 
-// scripts/lib/uv-lockfiles.mjs
+// src/lib/uv-lockfiles.ts
 var import_toml = __toESM(require_toml(), 1);
 import { existsSync as existsSync3, readFileSync as readFileSync3 } from "node:fs";
 import path4 from "node:path";
@@ -5562,7 +5585,7 @@ function parseUvLock(content) {
   return import_toml.default.parse(content);
 }
 function extractDependencies2(lockfile) {
-  if (!Array.isArray(lockfile?.package)) {
+  if (!Array.isArray(lockfile.package)) {
     throw new Error("unsupported-lockfile-format: expected lockfile.package array");
   }
   const dependencies = /* @__PURE__ */ new Set();
@@ -5609,7 +5632,7 @@ function checkChangedUvLockfiles({ baseSha, headSha, cwd = process.cwd() }) {
     try {
       headContent = readFileSync3(fullPath, "utf8");
     } catch (error) {
-      errors.push(`${file}:read-failed:${error.message}`);
+      errors.push(`${file}:read-failed:${getErrorMessage3(error)}`);
       continue;
     }
     try {
@@ -5644,10 +5667,18 @@ function checkChangedUvLockfiles({ baseSha, headSha, cwd = process.cwd() }) {
   };
 }
 
-// scripts/evaluate-pull-request.mjs
+// src/entrypoints/evaluate-pull-request.ts
+function requiredEnv(name) {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`Missing ${name}`);
+  }
+  return value;
+}
+var githubOutputPath = requiredEnv("GITHUB_OUTPUT");
 function setOutput(name, value) {
   const delimiter = `EOF_${randomUUID()}`;
-  appendFileSync(process.env.GITHUB_OUTPUT, `${name}<<${delimiter}
+  appendFileSync(githubOutputPath, `${name}<<${delimiter}
 ${String(value ?? "")}
 ${delimiter}
 `);
@@ -5657,7 +5688,10 @@ function writeOutputs(outputs2) {
     setOutput(name, value);
   }
 }
-var event = JSON.parse(readFileSync4(process.env.GITHUB_EVENT_PATH, "utf8"));
+function hasApprovalPayload(entry) {
+  return entry.payload !== null;
+}
+var event = JSON.parse(readFileSync4(requiredEnv("GITHUB_EVENT_PATH"), "utf8"));
 var pullRequest = event.pull_request;
 var outputs = {
   "candidate": "false",
@@ -5874,7 +5908,7 @@ if (candidate && packageEcosystem === "pip") {
 outputs.candidate = candidate ? "true" : "false";
 var github = new GitHubClient({ token });
 var existingComments = await github.listIssueComments(pullRequest.number);
-var existingApprovalComment = existingComments.filter((comment) => comment.user?.login === "github-actions[bot]").map((comment) => ({ comment, payload: parseApprovalComment(comment.body) })).filter((entry) => entry.payload).sort((left, right) => Date.parse(right.comment.updated_at) - Date.parse(left.comment.updated_at))[0];
+var existingApprovalComment = existingComments.filter((comment) => comment.user?.login === "github-actions[bot]").map((comment) => ({ comment, payload: parseApprovalComment(comment.body) })).filter(hasApprovalPayload).sort((left, right) => Date.parse(right.comment.updated_at) - Date.parse(left.comment.updated_at))[0];
 var checkedAt = resolveApprovalCheckedAt({
   existingPayload: existingApprovalComment?.payload,
   sha: pullRequest.head.sha,

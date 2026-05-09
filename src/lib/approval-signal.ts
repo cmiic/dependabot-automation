@@ -1,22 +1,59 @@
 const APPROVAL_MARKER_PREFIX = '<!-- dependabot-automation:approval '
 
-export function buildDependencyKey (updatedDependenciesJson) {
+interface DependencyUpdate {
+  dependencyName: string
+  prevVersion?: unknown
+  newVersion?: unknown
+}
+
+export interface ApprovalCommentPayload {
+  status?: string
+  sha?: string
+  reason?: string
+  packageEcosystem?: string
+  updateType?: string
+  dependencyFileStatus?: string
+  lockfileStatus?: string
+  dependencyKey?: string | null
+  checkedAt?: unknown
+}
+
+export interface BuildApprovalCommentOptions {
+  status: string
+  sha: string
+  reason: string
+  packageEcosystem: string
+  updateType: string
+  dependencyFileStatus?: string
+  lockfileStatus?: string
+  dependencyKey?: string | null
+  checkedAt?: string
+}
+
+export interface ResolveApprovalCheckedAtOptions {
+  existingPayload?: ApprovalCommentPayload | null
+  sha: string
+  dependencyKey?: string | null
+  fallbackCheckedAt?: string
+}
+
+function isDependencyUpdate (value: unknown): value is DependencyUpdate {
+  return typeof value === 'object' && value !== null && typeof (value as DependencyUpdate).dependencyName === 'string'
+}
+
+export function buildDependencyKey (updatedDependenciesJson?: string | null): string | null {
   if (!updatedDependenciesJson) {
     return null
   }
 
-  let parsed
+  let parsed: unknown
   try {
     parsed = JSON.parse(updatedDependenciesJson)
   } catch {
     return null
   }
 
-  if (!Array.isArray(parsed) || parsed.length === 0) {
-    return null
-  }
-
-  if (parsed.some(dep => typeof dep?.dependencyName !== 'string')) {
+  if (!Array.isArray(parsed) || parsed.length === 0 || parsed.some(entry => !isDependencyUpdate(entry))) {
     return null
   }
 
@@ -27,7 +64,7 @@ export function buildDependencyKey (updatedDependenciesJson) {
   return entries.join(',')
 }
 
-export function getApprovalCheckedAt (payload) {
+export function getApprovalCheckedAt (payload: ApprovalCommentPayload | null | undefined): string | null {
   if (typeof payload?.checkedAt !== 'string') {
     return null
   }
@@ -44,7 +81,7 @@ export function resolveApprovalCheckedAt ({
   sha,
   dependencyKey = null,
   fallbackCheckedAt = new Date().toISOString()
-}) {
+}: ResolveApprovalCheckedAtOptions): string {
   const checkedAt = getApprovalCheckedAt(existingPayload)
 
   if (!checkedAt) {
@@ -72,7 +109,7 @@ export function buildApprovalComment ({
   lockfileStatus,
   dependencyKey = null,
   checkedAt = new Date().toISOString()
-}) {
+}: BuildApprovalCommentOptions): string {
   const resolvedDependencyFileStatus = dependencyFileStatus || lockfileStatus || 'skipped'
   const resolvedLockfileStatus = lockfileStatus || resolvedDependencyFileStatus
   const payload = JSON.stringify({
@@ -105,7 +142,7 @@ export function buildApprovalComment ({
   ].join('\n')
 }
 
-export function parseApprovalComment (body) {
+export function parseApprovalComment (body: string | null | undefined): ApprovalCommentPayload | null {
   if (typeof body !== 'string' || !body.startsWith(APPROVAL_MARKER_PREFIX)) {
     return null
   }
@@ -117,12 +154,12 @@ export function parseApprovalComment (body) {
   }
 
   try {
-    return JSON.parse(body.slice(APPROVAL_MARKER_PREFIX.length, endIndex))
+    return JSON.parse(body.slice(APPROVAL_MARKER_PREFIX.length, endIndex)) as ApprovalCommentPayload
   } catch {
     return null
   }
 }
 
-export function isAutomationApprovalComment (body) {
+export function isAutomationApprovalComment (body: string | null | undefined): boolean {
   return typeof body === 'string' && body.startsWith(APPROVAL_MARKER_PREFIX)
 }

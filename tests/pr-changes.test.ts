@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { extractActionOwners, findUnexpectedFiles } from '../scripts/lib/pr-changes.mjs'
+import { extractActionOwners, findUnexpectedFiles } from '../src/lib/pr-changes.ts'
 
 test('findUnexpectedFiles rejects non-manifest files for npm_and_yarn PRs', () => {
   const unexpectedFiles = findUnexpectedFiles({

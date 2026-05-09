@@ -1,16 +1,68 @@
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 
-import { isPipRequirementsFile, listChangedFiles, pathExistsInGitRevision, runGit } from './pr-changes.mjs'
+import { isPipRequirementsFile, listChangedFiles, pathExistsInGitRevision, runGit } from './pr-changes.ts'
 
 const SIMPLE_REQUIREMENT_PATTERN
   = /^([A-Za-z0-9][A-Za-z0-9._-]*)(\s*\[[A-Za-z0-9._,\-\s]+\])?\s*(===|==|~=|!=|<=|>=|<|>)\s*([^,;\s\\]+)\s*(?:;\s*(.+))?$/
 
-function normalizePackageName (name) {
+type ComplexReason
+  = | 'line-continuation'
+    | 'editable'
+    | 'include'
+    | 'option'
+    | 'url'
+    | 'path'
+    | 'direct-reference'
+    | 'range'
+    | 'bare-specifier'
+    | 'unparseable'
+
+interface IgnoredRequirementLine {
+  type: 'ignored'
+}
+
+interface ComplexRequirementLine {
+  type: 'complex'
+  content: string
+  lineNumber: number
+  reason: ComplexReason
+}
+
+interface SimpleRequirementLine {
+  type: 'requirement'
+  name: string
+  operator: string
+  version: string
+  extras: string
+  marker: string
+  key: string
+  lineNumber: number
+}
+
+type ParsedRequirementLine = IgnoredRequirementLine | ComplexRequirementLine | SimpleRequirementLine
+
+interface ExtractedRequirements {
+  dependencies: Set<string>
+  requirementKeysByName: Map<string, Set<string>>
+  complexLines: ComplexRequirementLine[]
+}
+
+interface ComplexLineMapEntry {
+  count: number
+  line: ComplexRequirementLine
+}
+
+export interface ChangedPipFileClassification {
+  requirementFiles: string[]
+  unexpectedFiles: string[]
+}
+
+function normalizePackageName (name: string): string {
   return name.toLowerCase().replace(/[-_.]+/g, '-')
 }
 
-function normalizeExtras (extras) {
+function normalizeExtras (extras?: string): string {
   if (!extras) {
     return ''
   }
@@ -24,15 +76,15 @@ function normalizeExtras (extras) {
     .join(',')
 }
 
-function normalizeMarker (marker) {
+function normalizeMarker (marker?: string): string {
   return marker ? marker.replace(/\s+/g, ' ').trim() : ''
 }
 
-function normalizePath (filePath) {
+function normalizePath (filePath: string): string {
   return filePath.replace(/\\/g, '/')
 }
 
-function isNamedPipRequirementsFile (filePath) {
+function isNamedPipRequirementsFile (filePath: string): boolean {
   const basename = path.basename(normalizePath(filePath)).toLowerCase()
 
   if (!/\.(txt|in)$/i.test(basename)) {
@@ -47,7 +99,7 @@ function isNamedPipRequirementsFile (filePath) {
   )
 }
 
-function isAmbiguousRequirementsDirectoryFile (filePath) {
+function isAmbiguousRequirementsDirectoryFile (filePath: string): boolean {
   const normalized = normalizePath(filePath)
   const basename = path.basename(normalized).toLowerCase()
 
@@ -58,9 +110,9 @@ function isAmbiguousRequirementsDirectoryFile (filePath) {
   )
 }
 
-function stripInlineComment (line) {
+function stripInlineComment (line: string): string {
   for (let index = 0; index < line.length; index += 1) {
-    if (line[index] === '#' && (index === 0 || /\s/.test(line[index - 1]))) {
+    if (line[index] === '#' && (index === 0 || /\s/.test(line[index - 1] ?? ''))) {
       return line.slice(0, index).trimEnd()
     }
   }
@@ -68,7 +120,7 @@ function stripInlineComment (line) {
   return line
 }
 
-function complexLine (content, lineNumber, reason) {
+function complexLine (content: string, lineNumber: number, reason: ComplexReason): ComplexRequirementLine {
   return {
     type: 'complex',
     content: content.replace(/\s+/g, ' ').trim(),
@@ -77,7 +129,7 @@ function complexLine (content, lineNumber, reason) {
   }
 }
 
-export function parseRequirementLine (line, lineNumber = 1) {
+export function parseRequirementLine (line: string, lineNumber = 1): ParsedRequirementLine {
   const content = stripInlineComment(line).trim()
 
   if (!content) {
@@ -132,7 +184,11 @@ export function parseRequirementLine (line, lineNumber = 1) {
     return complexLine(content, lineNumber, 'unparseable')
   }
 
-  const [, rawName, rawExtras, operator, version, rawMarker] = match
+  const rawName = match[1] as string
+  const rawExtras = match[2]
+  const operator = match[3] as string
+  const version = match[4] as string
+  const rawMarker = match[5]
   const name = normalizePackageName(rawName)
   const extras = normalizeExtras(rawExtras)
   const marker = normalizeMarker(rawMarker)
@@ -149,10 +205,10 @@ export function parseRequirementLine (line, lineNumber = 1) {
   }
 }
 
-export function extractRequirements (content) {
-  const dependencies = new Set()
-  const requirementKeysByName = new Map()
-  const complexLines = []
+export function extractRequirements (content: string): ExtractedRequirements {
+  const dependencies = new Set<string>()
+  const requirementKeysByName = new Map<string, Set<string>>()
+  const complexLines: ComplexRequirementLine[] = []
 
   content.split('\n').forEach((line, index) => {
     const parsed = parseRequirementLine(line, index + 1)
@@ -168,7 +224,7 @@ export function extractRequirements (content) {
 
     dependencies.add(parsed.name)
 
-    const keys = requirementKeysByName.get(parsed.name) ?? new Set()
+    const keys = requirementKeysByName.get(parsed.name) ?? new Set<string>()
     keys.add(parsed.key)
     requirementKeysByName.set(parsed.name, keys)
   })
@@ -180,7 +236,7 @@ export function extractRequirements (content) {
   }
 }
 
-function setEquals (left, right) {
+function setEquals (left: Set<string>, right: Set<string>): boolean {
   if (left.size !== right.size) {
     return false
   }
@@ -194,8 +250,8 @@ function setEquals (left, right) {
   return true
 }
 
-function buildComplexLineMap (lines) {
-  const complexLineMap = new Map()
+function buildComplexLineMap (lines: ComplexRequirementLine[]): Map<string, ComplexLineMapEntry> {
+  const complexLineMap = new Map<string, ComplexLineMapEntry>()
 
   for (const line of lines) {
     const key = `${line.reason}|${line.content}`
@@ -207,8 +263,8 @@ function buildComplexLineMap (lines) {
   return complexLineMap
 }
 
-function findComplexRequirementLineErrors ({ file, baseRequirements, headRequirements }) {
-  const errors = []
+function findComplexRequirementLineErrors ({ file, baseRequirements, headRequirements }: { file: string, baseRequirements: ExtractedRequirements, headRequirements: ExtractedRequirements }): string[] {
+  const errors: string[] = []
   const baseComplexLines = buildComplexLineMap(baseRequirements.complexLines)
   const headComplexLines = buildComplexLineMap(headRequirements.complexLines)
   const keys = new Set([...baseComplexLines.keys(), ...headComplexLines.keys()])
@@ -223,7 +279,10 @@ function findComplexRequirementLineErrors ({ file, baseRequirements, headRequire
       continue
     }
 
-    const descriptor = headEntry?.line ?? baseEntry.line
+    const descriptor = headEntry?.line ?? baseEntry?.line
+    if (!descriptor) {
+      continue
+    }
 
     for (let index = 0; index < Math.max(baseCount - headCount, 0); index += 1) {
       errors.push(`${file}:unsupported-requirement-removed:${descriptor.content}`)
@@ -237,15 +296,15 @@ function findComplexRequirementLineErrors ({ file, baseRequirements, headRequire
   return errors
 }
 
-function isRecognizedRequirementsContent (content) {
+function isRecognizedRequirementsContent (content: string): boolean {
   return content
     .split('\n')
     .map((line, index) => parseRequirementLine(line, index + 1))
     .every(parsed => parsed.type !== 'complex' || parsed.reason !== 'unparseable')
 }
 
-function loadAvailableChangedFileContents ({ baseSha, file, cwd }) {
-  const contents = []
+function loadAvailableChangedFileContents ({ baseSha, file, cwd }: { baseSha: string, file: string, cwd: string }): string[] | null {
+  const contents: string[] = []
 
   if (pathExistsInGitRevision({ revision: baseSha, filePath: file, cwd })) {
     try {
@@ -267,10 +326,10 @@ function loadAvailableChangedFileContents ({ baseSha, file, cwd }) {
   return contents
 }
 
-export function classifyChangedPipFiles ({ baseSha, headSha, changedFiles, cwd = process.cwd() }) {
+export function classifyChangedPipFiles ({ baseSha, headSha, changedFiles, cwd = process.cwd() }: { baseSha: string, headSha: string, changedFiles?: string[], cwd?: string }): ChangedPipFileClassification {
   const allChangedFiles = changedFiles ?? listChangedFiles({ baseSha, headSha, cwd })
-  const requirementFiles = []
-  const unexpectedFiles = []
+  const requirementFiles: string[] = []
+  const unexpectedFiles: string[] = []
 
   for (const file of allChangedFiles) {
     if (!isPipRequirementsFile(file)) {
@@ -299,7 +358,7 @@ export function classifyChangedPipFiles ({ baseSha, headSha, changedFiles, cwd =
   }
 }
 
-function getErrorMessage (error) {
+function getErrorMessage (error: unknown): string {
   const message = error instanceof Error ? error.message : String(error)
   const normalized = message.replace(/\s+/g, ' ').trim()
 
@@ -310,7 +369,7 @@ function getErrorMessage (error) {
   return `${normalized.slice(0, 237)}...`
 }
 
-export function findChangedPipRequirementFiles ({ baseSha, headSha, changedFiles, cwd = process.cwd() }) {
+export function findChangedPipRequirementFiles ({ baseSha, headSha, changedFiles, cwd = process.cwd() }: { baseSha: string, headSha: string, changedFiles?: string[], cwd?: string }): { changedFiles: string[] } {
   const allChangedFiles = changedFiles ?? listChangedFiles({ baseSha, headSha, cwd })
 
   return {
@@ -318,11 +377,18 @@ export function findChangedPipRequirementFiles ({ baseSha, headSha, changedFiles
   }
 }
 
-export function checkChangedPipRequirements ({ baseSha, headSha, changedFiles, cwd = process.cwd() }) {
+export function checkChangedPipRequirements ({ baseSha, headSha, changedFiles, cwd = process.cwd() }: { baseSha: string, headSha: string, changedFiles?: string[], cwd?: string }): {
+  ok: boolean
+  status: string
+  changedFiles: string[]
+  skippedFiles: string[]
+  newDependencies: string[]
+  errors: string[]
+} {
   const { changedFiles: requirementFiles } = findChangedPipRequirementFiles({ baseSha, headSha, changedFiles, cwd })
-  const newDependencies = []
-  const errors = []
-  const skippedFiles = []
+  const newDependencies: string[] = []
+  const errors: string[] = []
+  const skippedFiles: string[] = []
 
   for (const file of requirementFiles) {
     const fullPath = path.join(cwd, file)
@@ -332,7 +398,7 @@ export function checkChangedPipRequirements ({ baseSha, headSha, changedFiles, c
       continue
     }
 
-    let baseContent
+    let baseContent: string
     try {
       baseContent = runGit(['show', `${baseSha}:${file}`], cwd)
     } catch (error) {
@@ -344,11 +410,11 @@ export function checkChangedPipRequirements ({ baseSha, headSha, changedFiles, c
       continue
     }
 
-    let headContent
+    let headContent: string
     try {
       headContent = readFileSync(fullPath, 'utf8')
     } catch (error) {
-      errors.push(`${file}:read-failed:${error.message}`)
+      errors.push(`${file}:read-failed:${getErrorMessage(error)}`)
       continue
     }
 
@@ -362,8 +428,8 @@ export function checkChangedPipRequirements ({ baseSha, headSha, changedFiles, c
     ])
 
     for (const dependency of Array.from(dependencyNames).sort()) {
-      const baseKeys = baseRequirements.requirementKeysByName.get(dependency) ?? new Set()
-      const headKeys = headRequirements.requirementKeysByName.get(dependency) ?? new Set()
+      const baseKeys = baseRequirements.requirementKeysByName.get(dependency) ?? new Set<string>()
+      const headKeys = headRequirements.requirementKeysByName.get(dependency) ?? new Set<string>()
 
       if (baseKeys.size === 0) {
         newDependencies.push(`${file}: ${dependency}`)

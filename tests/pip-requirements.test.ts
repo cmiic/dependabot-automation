@@ -10,9 +10,9 @@ import {
   classifyChangedPipFiles,
   extractRequirements,
   parseRequirementLine
-} from '../scripts/lib/pip-requirements.mjs'
+} from '../src/lib/pip-requirements.ts'
 
-function git (cwd, args) {
+function git (cwd: string, args: string[]): string {
   return execFileSync('git', args, {
     cwd,
     encoding: 'utf8',
@@ -20,12 +20,12 @@ function git (cwd, args) {
   }).trim()
 }
 
-function writeText (filePath, content) {
+function writeText (filePath: string, content: string): void {
   mkdirSync(path.dirname(filePath), { recursive: true })
   writeFileSync(filePath, content)
 }
 
-function initRepo () {
+function initRepo (): string {
   const repoDir = mkdtempSync(path.join(tmpdir(), 'dependabot-automation-pip-'))
   git(repoDir, ['init'])
   git(repoDir, ['config', 'user.name', 'Codex'])

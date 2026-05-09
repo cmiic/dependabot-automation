@@ -5,9 +5,9 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 
-import { checkChangedLockfiles, extractDependencies } from '../scripts/lib/lockfiles.mjs'
+import { checkChangedLockfiles, extractDependencies } from '../src/lib/lockfiles.ts'
 
-function git (cwd, args) {
+function git (cwd: string, args: string[]): string {
   return execFileSync('git', args, {
     cwd,
     encoding: 'utf8',
@@ -15,7 +15,7 @@ function git (cwd, args) {
   }).trim()
 }
 
-function writeJson (filePath, value) {
+function writeJson (filePath: string, value: unknown): void {
   writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`)
 }
 
@@ -33,6 +33,10 @@ test('extractDependencies supports lockfiles with packages entries', () => {
 
 test('extractDependencies rejects unsupported lockfile formats', () => {
   assert.throws(() => extractDependencies({ dependencies: { react: { version: '18.0.0' } } }), {
+    message: 'unsupported-lockfile-format: expected lockfile.packages object'
+  })
+
+  assert.throws(() => extractDependencies(null), {
     message: 'unsupported-lockfile-format: expected lockfile.packages object'
   })
 })

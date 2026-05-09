@@ -1,28 +1,56 @@
 import { appendFileSync, readFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 
-import { buildApprovalComment, buildDependencyKey, parseApprovalComment, resolveApprovalCheckedAt } from './lib/approval-signal.mjs'
-import { GitHubClient, calculateAgeDays, parseCsvList } from './lib/github.mjs'
-import { checkChangedLockfiles } from './lib/lockfiles.mjs'
-import { checkChangedPipRequirements, classifyChangedPipFiles } from './lib/pip-requirements.mjs'
-import { findUnexpectedFiles, listChangedFiles, extractActionOwners } from './lib/pr-changes.mjs'
-import { checkChangedUvLockfiles } from './lib/uv-lockfiles.mjs'
+import type { ApprovalCommentPayload } from '../lib/approval-signal.ts'
+import type { IssueComment, PullRequest } from '../lib/github.ts'
 
-function setOutput (name, value) {
-  const delimiter = `EOF_${randomUUID()}`
-  appendFileSync(process.env.GITHUB_OUTPUT, `${name}<<${delimiter}\n${String(value ?? '')}\n${delimiter}\n`)
+import { buildApprovalComment, buildDependencyKey, parseApprovalComment, resolveApprovalCheckedAt } from '../lib/approval-signal.ts'
+import { GitHubClient, calculateAgeDays, parseCsvList } from '../lib/github.ts'
+import { checkChangedLockfiles } from '../lib/lockfiles.ts'
+import { checkChangedPipRequirements, classifyChangedPipFiles } from '../lib/pip-requirements.ts'
+import { extractActionOwners, findUnexpectedFiles, listChangedFiles } from '../lib/pr-changes.ts'
+import { checkChangedUvLockfiles } from '../lib/uv-lockfiles.ts'
+
+type ApprovalCommentEntry = {
+  comment: IssueComment
+  payload: ApprovalCommentPayload | null
 }
 
-function writeOutputs (outputs) {
+type PullRequestEvent = {
+  pull_request?: PullRequest | null
+}
+
+function requiredEnv (name: string): string {
+  const value = process.env[name]
+
+  if (!value) {
+    throw new Error(`Missing ${name}`)
+  }
+
+  return value
+}
+
+const githubOutputPath = requiredEnv('GITHUB_OUTPUT')
+
+function setOutput (name: string, value: unknown): void {
+  const delimiter = `EOF_${randomUUID()}`
+  appendFileSync(githubOutputPath, `${name}<<${delimiter}\n${String(value ?? '')}\n${delimiter}\n`)
+}
+
+function writeOutputs (outputs: Record<string, string>): void {
   for (const [name, value] of Object.entries(outputs)) {
     setOutput(name, value)
   }
 }
 
-const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'))
+function hasApprovalPayload (entry: ApprovalCommentEntry): entry is { comment: IssueComment, payload: ApprovalCommentPayload } {
+  return entry.payload !== null
+}
+
+const event = JSON.parse(readFileSync(requiredEnv('GITHUB_EVENT_PATH'), 'utf8')) as PullRequestEvent
 const pullRequest = event.pull_request
 
-const outputs = {
+const outputs: Record<string, string> = {
   'candidate': 'false',
   'quarantine-passed': 'false',
   'automerge-enabled': 'false',
@@ -34,7 +62,7 @@ const outputs = {
   'lockfile-status': 'skipped'
 }
 
-function setDependencyFileStatus (status) {
+function setDependencyFileStatus (status: string): void {
   outputs['dependency-file-status'] = status
   outputs['lockfile-status'] = status
 }
@@ -66,7 +94,7 @@ console.log(`  Update type: ${updateType || 'unknown'}`)
 
 let candidate = true
 let reason = 'eligible'
-let pipFileClassification = null
+let pipFileClassification: ReturnType<typeof classifyChangedPipFiles> | null = null
 
 if (!allowedEcosystems.has(packageEcosystem)) {
   candidate = false
@@ -284,7 +312,7 @@ const existingComments = await github.listIssueComments(pullRequest.number)
 const existingApprovalComment = existingComments
   .filter(comment => comment.user?.login === 'github-actions[bot]')
   .map(comment => ({ comment, payload: parseApprovalComment(comment.body) }))
-  .filter(entry => entry.payload)
+  .filter(hasApprovalPayload)
   .sort((left, right) => Date.parse(right.comment.updated_at) - Date.parse(left.comment.updated_at))[0]
 
 const checkedAt = resolveApprovalCheckedAt({

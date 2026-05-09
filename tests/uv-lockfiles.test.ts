@@ -5,9 +5,9 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 
-import { checkChangedUvLockfiles, extractDependencies } from '../scripts/lib/uv-lockfiles.mjs'
+import { checkChangedUvLockfiles, extractDependencies } from '../src/lib/uv-lockfiles.ts'
 
-function git (cwd, args) {
+function git (cwd: string, args: string[]): string {
   return execFileSync('git', args, {
     cwd,
     encoding: 'utf8',
@@ -15,11 +15,11 @@ function git (cwd, args) {
   }).trim()
 }
 
-function writeText (filePath, content) {
+function writeText (filePath: string, content: string): void {
   writeFileSync(filePath, content)
 }
 
-function baseUvLock (extraPackages = '') {
+function baseUvLock (extraPackages = ''): string {
   return [
     'version = 1',
     'revision = 3',
