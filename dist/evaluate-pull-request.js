@@ -5167,8 +5167,11 @@ function addDependenciesFromPackages(packages, dependencies) {
     dependencies.add(dependencyPath);
   }
 }
+function hasPackagesObject(lockfile) {
+  return typeof lockfile === "object" && lockfile !== null && "packages" in lockfile && typeof lockfile.packages === "object" && lockfile.packages !== null;
+}
 function extractDependencies(lockfile) {
-  if (!lockfile.packages || typeof lockfile.packages !== "object") {
+  if (!hasPackagesObject(lockfile)) {
     throw new Error("unsupported-lockfile-format: expected lockfile.packages object");
   }
   const dependencies = /* @__PURE__ */ new Set();
