@@ -35,6 +35,10 @@ test('extractDependencies rejects unsupported lockfile formats', () => {
   assert.throws(() => extractDependencies({ dependencies: { react: { version: '18.0.0' } } }), {
     message: 'unsupported-lockfile-format: expected lockfile.packages object'
   })
+
+  assert.throws(() => extractDependencies(null), {
+    message: 'unsupported-lockfile-format: expected lockfile.packages object'
+  })
 })
 
 test('checkChangedLockfiles reports newly introduced dependencies in changed lockfiles', () => {

@@ -10,8 +10,8 @@ interface LockfilePackages {
   [packagePath: string]: unknown
 }
 
-type NpmLockfile = Record<string, unknown> & {
-  packages?: unknown
+interface NpmLockfile {
+  packages: LockfilePackages
 }
 
 function isSupportedLockfile (filePath: string): boolean {
@@ -39,13 +39,23 @@ function addDependenciesFromPackages (packages: LockfilePackages, dependencies: 
   }
 }
 
-export function extractDependencies (lockfile: NpmLockfile): Set<string> {
-  if (!lockfile.packages || typeof lockfile.packages !== 'object') {
+function hasPackagesObject (lockfile: unknown): lockfile is NpmLockfile {
+  return (
+    typeof lockfile === 'object'
+    && lockfile !== null
+    && 'packages' in lockfile
+    && typeof lockfile.packages === 'object'
+    && lockfile.packages !== null
+  )
+}
+
+export function extractDependencies (lockfile: unknown): Set<string> {
+  if (!hasPackagesObject(lockfile)) {
     throw new Error('unsupported-lockfile-format: expected lockfile.packages object')
   }
 
   const dependencies = new Set<string>()
-  addDependenciesFromPackages(lockfile.packages as LockfilePackages, dependencies)
+  addDependenciesFromPackages(lockfile.packages, dependencies)
 
   return dependencies
 }
