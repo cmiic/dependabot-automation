@@ -121,7 +121,7 @@ runs:
         METADATA_DEPENDENCY_NAMES: ${{ steps.metadata.outputs.dependency-names }}
         METADATA_UPDATED_DEPENDENCIES_JSON: ${{ steps.metadata.outputs.updated-dependencies-json }}
         TRUSTED_ACTION_OWNERS: ${{ inputs.trusted-action-owners }}
-      run: node "$GITHUB_ACTION_PATH/../dist/evaluate-pull-request.mjs"
+      run: node "$GITHUB_ACTION_PATH/../dist/evaluate-pull-request.js"
 
     - id: result
       shell: bash

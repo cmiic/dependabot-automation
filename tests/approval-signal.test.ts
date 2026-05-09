@@ -8,7 +8,7 @@ import {
   isAutomationApprovalComment,
   parseApprovalComment,
   resolveApprovalCheckedAt
-} from '../scripts/lib/approval-signal.mjs'
+} from '../src/lib/approval-signal.ts'
 
 test('buildApprovalComment creates a parseable machine marker', () => {
   const comment = buildApprovalComment({

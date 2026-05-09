@@ -1,46 +1,56 @@
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 
-import { listChangedFiles, pathExistsInGitRevision, runGit } from './pr-changes.mjs'
+import { listChangedFiles, pathExistsInGitRevision, runGit } from './pr-changes.ts'
 
 const LOCKFILE_BASENAMES = new Set(['package-lock.json', 'npm-shrinkwrap.json'])
 const UNSUPPORTED_LOCKFILE_BASENAMES = new Set(['yarn.lock', 'pnpm-lock.yaml'])
 
-function isSupportedLockfile (filePath) {
+interface LockfilePackages {
+  [packagePath: string]: unknown
+}
+
+type NpmLockfile = Record<string, unknown> & {
+  packages?: unknown
+}
+
+function isSupportedLockfile (filePath: string): boolean {
   return LOCKFILE_BASENAMES.has(path.basename(filePath))
 }
 
-function isUnsupportedLockfile (filePath) {
+function isUnsupportedLockfile (filePath: string): boolean {
   return UNSUPPORTED_LOCKFILE_BASENAMES.has(path.basename(filePath))
 }
 
-function addDependenciesFromPackages (packages, dependencies) {
+function addDependenciesFromPackages (packages: LockfilePackages, dependencies: Set<string>): void {
   for (const packagePath of Object.keys(packages)) {
     if (!packagePath) {
       continue
     }
 
     const match = packagePath.match(/node_modules\/(.+)$/)
-    if (!match) {
+    const dependencyPath = match?.[1]
+
+    if (!dependencyPath) {
       continue
     }
 
-    dependencies.add(match[1])
+    dependencies.add(dependencyPath)
   }
 }
 
-export function extractDependencies (lockfile) {
-  if (!lockfile?.packages || typeof lockfile.packages !== 'object') {
+export function extractDependencies (lockfile: NpmLockfile): Set<string> {
+  if (!lockfile.packages || typeof lockfile.packages !== 'object') {
     throw new Error('unsupported-lockfile-format: expected lockfile.packages object')
   }
 
-  const dependencies = new Set()
-  addDependenciesFromPackages(lockfile.packages, dependencies)
+  const dependencies = new Set<string>()
+  addDependenciesFromPackages(lockfile.packages as LockfilePackages, dependencies)
 
   return dependencies
 }
 
-function getErrorMessage (error) {
+function getErrorMessage (error: unknown): string {
   const message = error instanceof Error ? error.message : String(error)
   const normalized = message.replace(/\s+/g, ' ').trim()
 
@@ -51,7 +61,7 @@ function getErrorMessage (error) {
   return `${normalized.slice(0, 237)}...`
 }
 
-export function findChangedLockfiles ({ baseSha, headSha, cwd = process.cwd() }) {
+export function findChangedLockfiles ({ baseSha, headSha, cwd = process.cwd() }: { baseSha: string, headSha: string, cwd?: string }): { changedFiles: string[], unsupportedFiles: string[] } {
   const changedFiles = listChangedFiles({ baseSha, headSha, cwd })
 
   return {
@@ -60,11 +70,19 @@ export function findChangedLockfiles ({ baseSha, headSha, cwd = process.cwd() })
   }
 }
 
-export function checkChangedLockfiles ({ baseSha, headSha, cwd = process.cwd() }) {
+export function checkChangedLockfiles ({ baseSha, headSha, cwd = process.cwd() }: { baseSha: string, headSha: string, cwd?: string }): {
+  ok: boolean
+  status: string
+  changedFiles: string[]
+  unsupportedFiles: string[]
+  skippedFiles: string[]
+  newDependencies: string[]
+  errors: string[]
+} {
   const { changedFiles, unsupportedFiles } = findChangedLockfiles({ baseSha, headSha, cwd })
-  const newDependencies = []
-  const errors = []
-  const skippedFiles = []
+  const newDependencies: string[] = []
+  const errors: string[] = []
+  const skippedFiles: string[] = []
 
   for (const file of unsupportedFiles) {
     errors.push(`${file}:unsupported-lockfile`)
@@ -78,7 +96,7 @@ export function checkChangedLockfiles ({ baseSha, headSha, cwd = process.cwd() }
       continue
     }
 
-    let baseContent
+    let baseContent: string
     try {
       baseContent = runGit(['show', `${baseSha}:${file}`], cwd)
     } catch (error) {
@@ -90,17 +108,17 @@ export function checkChangedLockfiles ({ baseSha, headSha, cwd = process.cwd() }
       continue
     }
 
-    let headContent
+    let headContent: string
     try {
       headContent = readFileSync(fullPath, 'utf8')
     } catch (error) {
-      errors.push(`${file}:read-failed:${error.message}`)
+      errors.push(`${file}:read-failed:${getErrorMessage(error)}`)
       continue
     }
 
     try {
-      const baseLockfile = JSON.parse(baseContent)
-      const headLockfile = JSON.parse(headContent)
+      const baseLockfile = JSON.parse(baseContent) as NpmLockfile
+      const headLockfile = JSON.parse(headContent) as NpmLockfile
       const baseDependencies = extractDependencies(baseLockfile)
       const headDependencies = extractDependencies(headLockfile)
 
@@ -110,7 +128,7 @@ export function checkChangedLockfiles ({ baseSha, headSha, cwd = process.cwd() }
         }
       }
     } catch (error) {
-      errors.push(`${file}:parse-failed:${error.message}`)
+      errors.push(`${file}:parse-failed:${getErrorMessage(error)}`)
     }
   }
 

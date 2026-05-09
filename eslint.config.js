@@ -1,8 +1,10 @@
 import js from '@eslint/js'
 import stylistic from '@stylistic/eslint-plugin'
 import globals from 'globals'
+import tseslint from 'typescript-eslint'
 
 const jsFiles = ['**/*.{js,mjs,cjs}']
+const tsFiles = ['**/*.ts']
 
 export default [
   // Stylistic formatting rules
@@ -26,8 +28,12 @@ export default [
     ...js.configs.recommended,
     files: jsFiles
   },
+  ...tseslint.configs.recommended.map(config => ({
+    ...config,
+    files: tsFiles
+  })),
   {
-    files: jsFiles,
+    files: [...jsFiles, ...tsFiles],
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'module',
@@ -39,7 +45,7 @@ export default [
   },
   // Service Worker specific config
   {
-    files: ['**/sw.js', '**/service-worker.js'],
+    files: ['**/sw.js', '**/service-worker.js', '**/sw.ts', '**/service-worker.ts'],
     languageOptions: {
       globals: {
         ...globals.serviceworker

@@ -1,8 +1,8 @@
-// scripts/process-cron.mjs
+// src/entrypoints/process-cron.ts
 import { appendFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 
-// scripts/lib/approval-signal.mjs
+// src/lib/approval-signal.ts
 var APPROVAL_MARKER_PREFIX = "<!-- dependabot-automation:approval ";
 function getApprovalCheckedAt(payload) {
   if (typeof payload?.checkedAt !== "string") {
@@ -29,7 +29,7 @@ function parseApprovalComment(body) {
   }
 }
 
-// scripts/lib/github.mjs
+// src/lib/github.ts
 var API_VERSION = "2022-11-28";
 var USER_AGENT = "cmiic-dependabot-automation";
 function normalizeMergeMethod(raw = "squash") {
@@ -47,6 +47,8 @@ function calculateAgeDays(createdAt, now = Date.now()) {
   return Math.floor((now - createdTs) / 864e5);
 }
 var GitHubRequestError = class extends Error {
+  status;
+  data;
   constructor(message, status, data) {
     super(message);
     this.name = "GitHubRequestError";
@@ -55,6 +57,11 @@ var GitHubRequestError = class extends Error {
   }
 };
 var GitHubClient = class {
+  token;
+  serverUrl;
+  graphqlUrl;
+  owner;
+  repo;
   constructor({
     token: token2,
     repository = process.env.GITHUB_REPOSITORY,
@@ -71,6 +78,9 @@ var GitHubClient = class {
     this.serverUrl = serverUrl.replace(/\/$/, "");
     this.graphqlUrl = (graphqlUrl || `${this.serverUrl}/graphql`).replace(/\/$/, "");
     const [owner, repo] = repository.split("/", 2);
+    if (!owner || !repo) {
+      throw new Error(`Invalid GITHUB_REPOSITORY value: ${repository}`);
+    }
     this.owner = owner;
     this.repo = repo;
   }
@@ -194,25 +204,48 @@ var GitHubClient = class {
   }
 };
 
-// scripts/process-cron.mjs
+// src/entrypoints/process-cron.ts
+function requiredEnv(name) {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`Missing ${name}`);
+  }
+  return value;
+}
+var githubOutputPath = requiredEnv("GITHUB_OUTPUT");
 function setOutput(name, value) {
   const delimiter = `EOF_${randomUUID()}`;
-  appendFileSync(process.env.GITHUB_OUTPUT, `${name}<<${delimiter}
+  appendFileSync(githubOutputPath, `${name}<<${delimiter}
 ${String(value ?? "")}
 ${delimiter}
 `);
 }
+function hasApprovalPayload(entry) {
+  return entry.payload !== null;
+}
+function isRecord(value) {
+  return typeof value === "object" && value !== null;
+}
+function getErrorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
 function extractErrorMessages(error) {
   const messages = [];
-  if (error instanceof GitHubRequestError) {
-    if (typeof error.data?.message === "string") messages.push(error.data.message);
-    if (Array.isArray(error.data?.errors)) {
+  if (error instanceof GitHubRequestError && isRecord(error.data)) {
+    if (typeof error.data.message === "string") {
+      messages.push(error.data.message);
+    }
+    if (Array.isArray(error.data.errors)) {
       for (const item of error.data.errors) {
-        if (typeof item?.message === "string") messages.push(item.message);
+        if (isRecord(item) && typeof item.message === "string") {
+          messages.push(item.message);
+        }
       }
     }
   }
-  if (typeof error?.message === "string") messages.push(error.message);
+  if (error instanceof Error) {
+    messages.push(error.message);
+  }
   return messages;
 }
 function errorMessageMatches(error, pattern) {
@@ -246,7 +279,7 @@ for (const pullRequestSummary of dependabotPullRequests) {
   try {
     const pullRequest = await github.getPullRequest(pullRequestSummary.number);
     const comments = await github.listIssueComments(pullRequestSummary.number);
-    const approvalComment = comments.filter((comment) => comment.user?.login === "github-actions[bot]").map((comment) => ({ comment, payload: parseApprovalComment(comment.body) })).filter((entry) => entry.payload).sort((left, right) => Date.parse(right.comment.updated_at) - Date.parse(left.comment.updated_at))[0];
+    const approvalComment = comments.filter((comment) => comment.user?.login === "github-actions[bot]").map((comment) => ({ comment, payload: parseApprovalComment(comment.body) })).filter(hasApprovalPayload).sort((left, right) => Date.parse(right.comment.updated_at) - Date.parse(left.comment.updated_at))[0];
     if (!approvalComment) {
       console.log("  Skipping: no machine-written approval signal found");
       continue;
@@ -278,7 +311,7 @@ for (const pullRequestSummary of dependabotPullRequests) {
     candidates.push({ pullRequest, checkedAt });
   } catch (error) {
     failedCount += 1;
-    console.log(`  Failed: ${error.message}`);
+    console.log(`  Failed: ${getErrorMessage(error)}`);
   }
 }
 candidates.sort((left, right) => Date.parse(left.checkedAt) - Date.parse(right.checkedAt));
@@ -299,7 +332,7 @@ for (const { pullRequest } of candidates) {
         try {
           await github.disablePullRequestAutoMerge(pullRequest.node_id);
         } catch (disableError) {
-          console.log(`  Could not disable existing auto-merge: ${disableError.message}`);
+          console.log(`  Could not disable existing auto-merge: ${getErrorMessage(disableError)}`);
           throw disableError;
         }
         console.log("  Waiting for Dependabot to rebase");
@@ -319,7 +352,8 @@ for (const { pullRequest } of candidates) {
         console.log("  Merged");
       } catch (mergeError) {
         if (mergeError instanceof GitHubRequestError && (mergeError.status === 405 || mergeError.status === 409)) {
-          console.log(`  Direct merge refused (${mergeError.status}): ${mergeError.data?.message ?? mergeError.message}`);
+          const mergeErrorMessage = isRecord(mergeError.data) && typeof mergeError.data.message === "string" ? mergeError.data.message : getErrorMessage(mergeError);
+          console.log(`  Direct merge refused (${mergeError.status}): ${mergeErrorMessage}`);
           console.log("  Not actionable from cron; waiting for Dependabot to rebase (queue continues)");
         } else {
           throw mergeError;
@@ -340,7 +374,7 @@ for (const { pullRequest } of candidates) {
   } catch (error) {
     failedCount += 1;
     pipelineBusy = true;
-    console.log(`  Failed: ${error.message}`);
+    console.log(`  Failed: ${getErrorMessage(error)}`);
   }
 }
 console.log("\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501");

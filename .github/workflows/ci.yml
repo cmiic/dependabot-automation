@@ -49,8 +49,8 @@ jobs:
 
       - run: npm ci --ignore-scripts
 
-      - name: Check scripts
-        run: npm run check
+      - name: Typecheck
+        run: npm run typecheck
 
       - name: Run tests
         run: npm test

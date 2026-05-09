@@ -3,15 +3,23 @@ import path from 'node:path'
 
 import toml from 'toml'
 
-import { listChangedFiles, pathExistsInGitRevision, runGit } from './pr-changes.mjs'
+import { listChangedFiles, pathExistsInGitRevision, runGit } from './pr-changes.ts'
 
 const UV_LOCKFILE_BASENAME = 'uv.lock'
 
-function isUvLockfile (filePath) {
+interface UvPackage {
+  name: string
+}
+
+type UvLockfile = Record<string, unknown> & {
+  package?: unknown
+}
+
+function isUvLockfile (filePath: string): boolean {
   return path.basename(filePath) === UV_LOCKFILE_BASENAME
 }
 
-function addDependenciesFromPackages (packages, dependencies) {
+function addDependenciesFromPackages (packages: UvPackage[], dependencies: Set<string>): void {
   for (const pkg of packages) {
     if (!pkg || typeof pkg !== 'object' || typeof pkg.name !== 'string' || pkg.name.trim() === '') {
       throw new Error('unsupported-lockfile-format: expected each package entry to have a name')
@@ -21,22 +29,22 @@ function addDependenciesFromPackages (packages, dependencies) {
   }
 }
 
-function parseUvLock (content) {
-  return toml.parse(content)
+function parseUvLock (content: string): Record<string, unknown> {
+  return toml.parse(content) as Record<string, unknown>
 }
 
-export function extractDependencies (lockfile) {
-  if (!Array.isArray(lockfile?.package)) {
+export function extractDependencies (lockfile: UvLockfile): Set<string> {
+  if (!Array.isArray(lockfile.package)) {
     throw new Error('unsupported-lockfile-format: expected lockfile.package array')
   }
 
-  const dependencies = new Set()
-  addDependenciesFromPackages(lockfile.package, dependencies)
+  const dependencies = new Set<string>()
+  addDependenciesFromPackages(lockfile.package as UvPackage[], dependencies)
 
   return dependencies
 }
 
-function getErrorMessage (error) {
+function getErrorMessage (error: unknown): string {
   const message = error instanceof Error ? error.message : String(error)
   const normalized = message.replace(/\s+/g, ' ').trim()
 
@@ -47,7 +55,7 @@ function getErrorMessage (error) {
   return `${normalized.slice(0, 237)}...`
 }
 
-export function findChangedUvLockfiles ({ baseSha, headSha, changedFiles, cwd = process.cwd() }) {
+export function findChangedUvLockfiles ({ baseSha, headSha, changedFiles, cwd = process.cwd() }: { baseSha: string, headSha: string, changedFiles?: string[], cwd?: string }): { changedFiles: string[] } {
   const allChangedFiles = changedFiles ?? listChangedFiles({ baseSha, headSha, cwd })
 
   return {
@@ -55,11 +63,18 @@ export function findChangedUvLockfiles ({ baseSha, headSha, changedFiles, cwd = 
   }
 }
 
-export function checkChangedUvLockfiles ({ baseSha, headSha, cwd = process.cwd() }) {
+export function checkChangedUvLockfiles ({ baseSha, headSha, cwd = process.cwd() }: { baseSha: string, headSha: string, cwd?: string }): {
+  ok: boolean
+  status: string
+  changedFiles: string[]
+  skippedFiles: string[]
+  newDependencies: string[]
+  errors: string[]
+} {
   const { changedFiles } = findChangedUvLockfiles({ baseSha, headSha, cwd })
-  const newDependencies = []
-  const errors = []
-  const skippedFiles = []
+  const newDependencies: string[] = []
+  const errors: string[] = []
+  const skippedFiles: string[] = []
 
   for (const file of changedFiles) {
     const fullPath = path.join(cwd, file)
@@ -69,7 +84,7 @@ export function checkChangedUvLockfiles ({ baseSha, headSha, cwd = process.cwd()
       continue
     }
 
-    let baseContent
+    let baseContent: string
     try {
       baseContent = runGit(['show', `${baseSha}:${file}`], cwd)
     } catch (error) {
@@ -81,11 +96,11 @@ export function checkChangedUvLockfiles ({ baseSha, headSha, cwd = process.cwd()
       continue
     }
 
-    let headContent
+    let headContent: string
     try {
       headContent = readFileSync(fullPath, 'utf8')
     } catch (error) {
-      errors.push(`${file}:read-failed:${error.message}`)
+      errors.push(`${file}:read-failed:${getErrorMessage(error)}`)
       continue
     }
 

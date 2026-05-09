@@ -1,37 +1,79 @@
 import { appendFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 
-import { getApprovalCheckedAt, parseApprovalComment } from './lib/approval-signal.mjs'
-import { GitHubClient, GitHubRequestError, calculateAgeDays, normalizeMergeMethod } from './lib/github.mjs'
+import type { ApprovalCommentPayload } from '../lib/approval-signal.ts'
+import type { IssueComment, PullRequest } from '../lib/github.ts'
 
-function setOutput (name, value) {
-  const delimiter = `EOF_${randomUUID()}`
-  appendFileSync(process.env.GITHUB_OUTPUT, `${name}<<${delimiter}\n${String(value ?? '')}\n${delimiter}\n`)
+import { getApprovalCheckedAt, parseApprovalComment } from '../lib/approval-signal.ts'
+import { GitHubClient, GitHubRequestError, calculateAgeDays, normalizeMergeMethod } from '../lib/github.ts'
+
+type ApprovalCommentEntry = {
+  comment: IssueComment
+  payload: ApprovalCommentPayload | null
 }
 
-function extractErrorMessages (error) {
-  const messages = []
-  if (error instanceof GitHubRequestError) {
-    if (typeof error.data?.message === 'string') messages.push(error.data.message)
-    if (Array.isArray(error.data?.errors)) {
+function requiredEnv (name: string): string {
+  const value = process.env[name]
+
+  if (!value) {
+    throw new Error(`Missing ${name}`)
+  }
+
+  return value
+}
+
+const githubOutputPath = requiredEnv('GITHUB_OUTPUT')
+
+function setOutput (name: string, value: unknown): void {
+  const delimiter = `EOF_${randomUUID()}`
+  appendFileSync(githubOutputPath, `${name}<<${delimiter}\n${String(value ?? '')}\n${delimiter}\n`)
+}
+
+function hasApprovalPayload (entry: ApprovalCommentEntry): entry is { comment: IssueComment, payload: ApprovalCommentPayload } {
+  return entry.payload !== null
+}
+
+function isRecord (value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function getErrorMessage (error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function extractErrorMessages (error: unknown): string[] {
+  const messages: string[] = []
+
+  if (error instanceof GitHubRequestError && isRecord(error.data)) {
+    if (typeof error.data.message === 'string') {
+      messages.push(error.data.message)
+    }
+
+    if (Array.isArray(error.data.errors)) {
       for (const item of error.data.errors) {
-        if (typeof item?.message === 'string') messages.push(item.message)
+        if (isRecord(item) && typeof item.message === 'string') {
+          messages.push(item.message)
+        }
       }
     }
   }
-  if (typeof error?.message === 'string') messages.push(error.message)
+
+  if (error instanceof Error) {
+    messages.push(error.message)
+  }
+
   return messages
 }
 
-function errorMessageMatches (error, pattern) {
+function errorMessageMatches (error: unknown, pattern: RegExp): boolean {
   return extractErrorMessages(error).some(message => pattern.test(message))
 }
 
-function isNothingToAutoMergeError (error) {
+function isNothingToAutoMergeError (error: unknown): boolean {
   return errorMessageMatches(error, /clean status|pull request is in clean|nothing to merge/i)
 }
 
-function isAutoMergeAlreadyEnabledError (error) {
+function isAutoMergeAlreadyEnabledError (error: unknown): boolean {
   return errorMessageMatches(error, /auto[- ]?merge.*already|already has auto[- ]?merge/i)
 }
 
@@ -52,7 +94,7 @@ let automergeEnabledCount = 0
 let alreadyEnabledCount = 0
 let failedCount = 0
 
-const candidates = []
+const candidates: Array<{ pullRequest: PullRequest, checkedAt: string }> = []
 
 for (const pullRequestSummary of dependabotPullRequests) {
   processedCount += 1
@@ -67,7 +109,7 @@ for (const pullRequestSummary of dependabotPullRequests) {
     const approvalComment = comments
       .filter(comment => comment.user?.login === 'github-actions[bot]')
       .map(comment => ({ comment, payload: parseApprovalComment(comment.body) }))
-      .filter(entry => entry.payload)
+      .filter(hasApprovalPayload)
       .sort((left, right) => Date.parse(right.comment.updated_at) - Date.parse(left.comment.updated_at))[0]
 
     if (!approvalComment) {
@@ -108,7 +150,7 @@ for (const pullRequestSummary of dependabotPullRequests) {
     candidates.push({ pullRequest, checkedAt })
   } catch (error) {
     failedCount += 1
-    console.log(`  Failed: ${error.message}`)
+    console.log(`  Failed: ${getErrorMessage(error)}`)
   }
 }
 
@@ -135,7 +177,7 @@ for (const { pullRequest } of candidates) {
         try {
           await github.disablePullRequestAutoMerge(pullRequest.node_id)
         } catch (disableError) {
-          console.log(`  Could not disable existing auto-merge: ${disableError.message}`)
+          console.log(`  Could not disable existing auto-merge: ${getErrorMessage(disableError)}`)
           throw disableError
         }
         console.log('  Waiting for Dependabot to rebase')
@@ -155,7 +197,10 @@ for (const { pullRequest } of candidates) {
         console.log('  Merged')
       } catch (mergeError) {
         if (mergeError instanceof GitHubRequestError && (mergeError.status === 405 || mergeError.status === 409)) {
-          console.log(`  Direct merge refused (${mergeError.status}): ${mergeError.data?.message ?? mergeError.message}`)
+          const mergeErrorMessage = isRecord(mergeError.data) && typeof mergeError.data.message === 'string'
+            ? mergeError.data.message
+            : getErrorMessage(mergeError)
+          console.log(`  Direct merge refused (${mergeError.status}): ${mergeErrorMessage}`)
           console.log('  Not actionable from cron; waiting for Dependabot to rebase (queue continues)')
         } else {
           throw mergeError
@@ -176,7 +221,7 @@ for (const { pullRequest } of candidates) {
   } catch (error) {
     failedCount += 1
     pipelineBusy = true
-    console.log(`  Failed: ${error.message}`)
+    console.log(`  Failed: ${getErrorMessage(error)}`)
   }
 }
 
@@ -190,7 +235,7 @@ setOutput('automerge-enabled-count', automergeEnabledCount)
 setOutput('already-enabled-count', alreadyEnabledCount)
 setOutput('failed-count', failedCount)
 
-async function enableAutoMerge (pullRequest, reason) {
+async function enableAutoMerge (pullRequest: PullRequest, reason: string): Promise<void> {
   console.log(`  Enabling auto-merge (${reason})`)
   try {
     await github.enablePullRequestAutoMerge({

@@ -162,5 +162,5 @@ Shared inputs:
 
 ## Maintainers
 
-- After changing files under `scripts/` or runtime dependencies in `package.json`, run `npm run build` and commit the updated files under `dist/`.
+- After changing files under `src/` or runtime dependencies in `package.json`, run `npm run typecheck`, `npm test`, and `npm run build`, then commit the updated files under `dist/`.
 - CI runs `npm run check:dist` to ensure the committed bundles match the current source tree.
