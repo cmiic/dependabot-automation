@@ -4756,6 +4756,7 @@ import { randomUUID } from "node:crypto";
 
 // src/lib/approval-signal.ts
 var APPROVAL_MARKER_PREFIX = "<!-- dependabot-automation:approval ";
+var APPROVAL_CHECKED_AT_SLACK_MS = 5 * 60 * 1e3;
 function isDependencyUpdate(value) {
   return typeof value === "object" && value !== null && typeof value.dependencyName === "string";
 }
@@ -4775,22 +4776,30 @@ function buildDependencyKey(updatedDependenciesJson) {
   const entries = parsed.map((dep) => `${dep.dependencyName}:${dep.prevVersion ?? ""}:${dep.newVersion ?? ""}`).sort();
   return entries.join(",");
 }
-function getApprovalCheckedAt(payload) {
+function getApprovalCheckedAt(payload, comment) {
   if (typeof payload?.checkedAt !== "string") {
     return null;
   }
-  if (Number.isNaN(Date.parse(payload.checkedAt))) {
+  const payloadMs = Date.parse(payload.checkedAt);
+  if (Number.isNaN(payloadMs)) {
     return null;
+  }
+  if (typeof comment?.created_at === "string") {
+    const createdMs = Date.parse(comment.created_at);
+    if (!Number.isNaN(createdMs) && payloadMs < createdMs - APPROVAL_CHECKED_AT_SLACK_MS) {
+      return comment.created_at;
+    }
   }
   return payload.checkedAt;
 }
 function resolveApprovalCheckedAt({
   existingPayload,
+  existingComment,
   sha,
   dependencyKey: dependencyKey2 = null,
   fallbackCheckedAt = (/* @__PURE__ */ new Date()).toISOString()
 }) {
-  const checkedAt2 = getApprovalCheckedAt(existingPayload);
+  const checkedAt2 = getApprovalCheckedAt(existingPayload, existingComment);
   if (!checkedAt2) {
     return fallbackCheckedAt;
   }
@@ -5911,6 +5920,7 @@ var existingComments = await github.listIssueComments(pullRequest.number);
 var existingApprovalComment = existingComments.filter((comment) => comment.user?.login === "github-actions[bot]").map((comment) => ({ comment, payload: parseApprovalComment(comment.body) })).filter(hasApprovalPayload).sort((left, right) => Date.parse(right.comment.updated_at) - Date.parse(left.comment.updated_at))[0];
 var checkedAt = resolveApprovalCheckedAt({
   existingPayload: existingApprovalComment?.payload,
+  existingComment: existingApprovalComment?.comment,
   sha: pullRequest.head.sha,
   dependencyKey
 });

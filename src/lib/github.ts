@@ -28,6 +28,7 @@ export interface PullRequest extends PullRequestSummary {
 export interface IssueComment {
   id: number
   body: string
+  created_at: string
   updated_at: string
   user?: GitHubUser | null
 }

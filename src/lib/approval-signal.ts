@@ -1,4 +1,9 @@
 const APPROVAL_MARKER_PREFIX = '<!-- dependabot-automation:approval '
+const APPROVAL_CHECKED_AT_SLACK_MS = 5 * 60 * 1000
+
+interface TrustedCommentMetadata {
+  created_at: string
+}
 
 interface DependencyUpdate {
   dependencyName: string
@@ -32,6 +37,7 @@ export interface BuildApprovalCommentOptions {
 
 export interface ResolveApprovalCheckedAtOptions {
   existingPayload?: ApprovalCommentPayload | null
+  existingComment?: TrustedCommentMetadata | null
   sha: string
   dependencyKey?: string | null
   fallbackCheckedAt?: string
@@ -64,13 +70,24 @@ export function buildDependencyKey (updatedDependenciesJson?: string | null): st
   return entries.join(',')
 }
 
-export function getApprovalCheckedAt (payload: ApprovalCommentPayload | null | undefined): string | null {
+export function getApprovalCheckedAt (
+  payload: ApprovalCommentPayload | null | undefined,
+  comment?: TrustedCommentMetadata | null
+): string | null {
   if (typeof payload?.checkedAt !== 'string') {
     return null
   }
 
-  if (Number.isNaN(Date.parse(payload.checkedAt))) {
+  const payloadMs = Date.parse(payload.checkedAt)
+  if (Number.isNaN(payloadMs)) {
     return null
+  }
+
+  if (typeof comment?.created_at === 'string') {
+    const createdMs = Date.parse(comment.created_at)
+    if (!Number.isNaN(createdMs) && payloadMs < createdMs - APPROVAL_CHECKED_AT_SLACK_MS) {
+      return comment.created_at
+    }
   }
 
   return payload.checkedAt
@@ -78,11 +95,12 @@ export function getApprovalCheckedAt (payload: ApprovalCommentPayload | null | u
 
 export function resolveApprovalCheckedAt ({
   existingPayload,
+  existingComment,
   sha,
   dependencyKey = null,
   fallbackCheckedAt = new Date().toISOString()
 }: ResolveApprovalCheckedAtOptions): string {
-  const checkedAt = getApprovalCheckedAt(existingPayload)
+  const checkedAt = getApprovalCheckedAt(existingPayload, existingComment)
 
   if (!checkedAt) {
     return fallbackCheckedAt

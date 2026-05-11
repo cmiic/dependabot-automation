@@ -129,7 +129,7 @@ for (const pullRequestSummary of dependabotPullRequests) {
       continue
     }
 
-    const checkedAt = getApprovalCheckedAt(approvalComment.payload)
+    const checkedAt = getApprovalCheckedAt(approvalComment.payload, approvalComment.comment)
     if (!checkedAt) {
       console.log('  Skipping: latest approval signal has no valid checkedAt timestamp')
       continue

@@ -317,6 +317,7 @@ const existingApprovalComment = existingComments
 
 const checkedAt = resolveApprovalCheckedAt({
   existingPayload: existingApprovalComment?.payload,
+  existingComment: existingApprovalComment?.comment,
   sha: pullRequest.head.sha,
   dependencyKey
 })
