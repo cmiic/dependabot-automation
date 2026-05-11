@@ -4,12 +4,20 @@ import { randomUUID } from "node:crypto";
 
 // src/lib/approval-signal.ts
 var APPROVAL_MARKER_PREFIX = "<!-- dependabot-automation:approval ";
-function getApprovalCheckedAt(payload) {
+var APPROVAL_CHECKED_AT_SLACK_MS = 5 * 60 * 1e3;
+function getApprovalCheckedAt(payload, comment) {
   if (typeof payload?.checkedAt !== "string") {
     return null;
   }
-  if (Number.isNaN(Date.parse(payload.checkedAt))) {
+  const payloadMs = Date.parse(payload.checkedAt);
+  if (Number.isNaN(payloadMs)) {
     return null;
+  }
+  if (typeof comment?.created_at === "string") {
+    const createdMs = Date.parse(comment.created_at);
+    if (!Number.isNaN(createdMs) && payloadMs < createdMs - APPROVAL_CHECKED_AT_SLACK_MS) {
+      return comment.created_at;
+    }
   }
   return payload.checkedAt;
 }
@@ -294,7 +302,7 @@ for (const pullRequestSummary of dependabotPullRequests) {
       );
       continue;
     }
-    const checkedAt = getApprovalCheckedAt(approvalComment.payload);
+    const checkedAt = getApprovalCheckedAt(approvalComment.payload, approvalComment.comment);
     if (!checkedAt) {
       console.log("  Skipping: latest approval signal has no valid checkedAt timestamp");
       continue;

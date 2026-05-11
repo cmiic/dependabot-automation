@@ -154,3 +154,68 @@ test('getApprovalCheckedAt rejects missing or invalid timestamps', () => {
   assert.equal(getApprovalCheckedAt({ checkedAt: 'not-a-date' }), null)
   assert.equal(getApprovalCheckedAt({ checkedAt: '2026-04-10T12:00:00.000Z' }), '2026-04-10T12:00:00.000Z')
 })
+
+test('getApprovalCheckedAt clamps backdated payload to comment.created_at', () => {
+  const clamped = getApprovalCheckedAt(
+    { checkedAt: '2024-01-01T00:00:00.000Z' },
+    { created_at: '2026-04-10T12:00:00.000Z' }
+  )
+
+  assert.equal(clamped, '2026-04-10T12:00:00.000Z')
+})
+
+test('getApprovalCheckedAt preserves payload within clock-skew slack', () => {
+  const checkedAt = getApprovalCheckedAt(
+    { checkedAt: '2026-04-10T11:58:00.000Z' },
+    { created_at: '2026-04-10T12:00:00.000Z' }
+  )
+
+  assert.equal(checkedAt, '2026-04-10T11:58:00.000Z')
+})
+
+test('getApprovalCheckedAt ignores malformed comment.created_at and falls back to payload', () => {
+  const checkedAt = getApprovalCheckedAt(
+    { checkedAt: '2026-04-07T12:00:00.000Z' },
+    { created_at: 'not-a-date' }
+  )
+
+  assert.equal(checkedAt, '2026-04-07T12:00:00.000Z')
+})
+
+test('getApprovalCheckedAt without comment metadata behaves as before', () => {
+  assert.equal(
+    getApprovalCheckedAt({ checkedAt: '2024-01-01T00:00:00.000Z' }),
+    '2024-01-01T00:00:00.000Z'
+  )
+})
+
+test('resolveApprovalCheckedAt clamps backdated payload on same-sha path', () => {
+  const checkedAt = resolveApprovalCheckedAt({
+    existingPayload: {
+      sha: 'abc123',
+      checkedAt: '2024-01-01T00:00:00.000Z'
+    },
+    existingComment: { created_at: '2026-04-10T12:00:00.000Z' },
+    sha: 'abc123',
+    fallbackCheckedAt: '2026-04-11T12:00:00.000Z'
+  })
+
+  assert.equal(checkedAt, '2026-04-10T12:00:00.000Z')
+})
+
+test('resolveApprovalCheckedAt clamps backdated payload on dependency-key carry-forward', () => {
+  const checkedAt = resolveApprovalCheckedAt({
+    existingPayload: {
+      sha: 'abc123',
+      status: 'approved',
+      dependencyKey: 'vue:3.5.31:3.5.32',
+      checkedAt: '2024-01-01T00:00:00.000Z'
+    },
+    existingComment: { created_at: '2026-04-10T12:00:00.000Z' },
+    sha: 'def456',
+    dependencyKey: 'vue:3.5.31:3.5.32',
+    fallbackCheckedAt: '2026-04-11T12:00:00.000Z'
+  })
+
+  assert.equal(checkedAt, '2026-04-10T12:00:00.000Z')
+})
