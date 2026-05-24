@@ -3,7 +3,7 @@ description: Evaluate a Dependabot pull request and write an approval signal for
 
 inputs:
   github-token:
-    description: GitHub token with contents:write, pull-requests:write, and issues:write permissions.
+    description: GitHub token with contents:read and pull-requests:write permissions on GitHub.com.
     required: true
   quarantine-days:
     description: Minimum approval age before the cron action may enable auto-merge.
