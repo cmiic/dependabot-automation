@@ -29,7 +29,7 @@
     "@stylistic/eslint-plugin": "5.10.0",
     "@types/node": "25.6.2",
     "@eslint/js": "10.0.1",
-    "esbuild": "0.25.11",
+    "esbuild": "0.28.1",
     "eslint": "10.2.1",
     "globals": "17.6.0",
     "markdownlint-cli2": "0.22.1",
