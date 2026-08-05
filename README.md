@@ -76,6 +76,7 @@ permissions:
 
 jobs:
   automerge:
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: cmiic/dependabot-automation/merge@<sha>
@@ -83,6 +84,8 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           quarantine-days: "1"
 ```
+
+The job-level `dependabot[bot]` gate is not strictly required — the action itself ignores non-Dependabot pull requests — but it skips the runner spin-up on every human PR, and it is a small extra safeguard: if this repository were ever compromised and you reference the action by tag or branch instead of a pinned SHA, the action code would not execute on your non-Dependabot PRs at all.
 
 `cron` wrapper:
 
