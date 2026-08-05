@@ -140,7 +140,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           quarantine-days: "1"
 
-      - if: steps.evaluate.outputs.quarantine-passed == 'true'
+      - if: steps.evaluate.outputs.candidate == 'true' && steps.evaluate.outputs.quarantine-passed == 'true'
         uses: cmiic/dependabot-automation/cron@<sha>
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,33 @@
+name: Dependabot Auto-merge
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+
+permissions:
+  contents: write # the cron step merges via the pull request merge endpoint
+  pull-requests: write
+
+jobs:
+  automerge:
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - id: evaluate
+        uses: cmiic/dependabot-automation/merge@f874340144823234f1e94e136745bade9d42e862 # main
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          quarantine-days: "1"
+          allowed-ecosystems: github_actions,npm_and_yarn
+          # cmiic is trusted so Dependabot bumps of this repo's own action
+          # pins in these workflows can auto-merge
+          trusted-action-owners: actions,github,dependabot,cmiic
+
+      - if: steps.evaluate.outputs.candidate == 'true' && steps.evaluate.outputs.quarantine-passed == 'true'
+        uses: cmiic/dependabot-automation/cron@f874340144823234f1e94e136745bade9d42e862 # main
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          quarantine-days: "1"
