@@ -26,7 +26,7 @@ jobs:
           # pins in these workflows can auto-merge
           trusted-action-owners: actions,github,dependabot,cmiic
 
-      - if: steps.evaluate.outputs.quarantine-passed == 'true'
+      - if: steps.evaluate.outputs.candidate == 'true' && steps.evaluate.outputs.quarantine-passed == 'true'
         uses: cmiic/dependabot-automation/cron@f874340144823234f1e94e136745bade9d42e862 # main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
