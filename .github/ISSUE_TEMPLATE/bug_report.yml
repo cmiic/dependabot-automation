@@ -1,0 +1,51 @@
+name: Bug report
+description: Report unexpected behavior of the merge or cron action
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug.
+        If this is a security vulnerability (e.g., a way to get a PR auto-merged that the policy should reject), **do not open an issue** — report it privately via the [Security tab](https://github.com/cmiic/dependabot-automation/security/advisories/new).
+  - type: dropdown
+    id: action
+    attributes:
+      label: Affected action
+      options:
+        - merge (PR evaluation)
+        - cron (scheduled merge)
+        - both / unsure
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect the action to do?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened instead? Include the action's outputs (e.g., `candidate`, `reason`) if available.
+    validations:
+      required: true
+  - type: textarea
+    id: workflow
+    attributes:
+      label: Wrapper workflow and inputs
+      description: The workflow YAML that invokes the action, including any non-default inputs. Redact anything sensitive.
+      render: yaml
+  - type: textarea
+    id: logs
+    attributes:
+      label: Run logs
+      description: Relevant excerpts from the workflow run logs.
+      render: text
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Ecosystem (npm, uv, pip, ...), the Dependabot PR in question, branch protection setup — anything that helps reproduce the issue.
