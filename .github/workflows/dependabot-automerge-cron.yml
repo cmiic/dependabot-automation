@@ -1,0 +1,21 @@
+name: Dependabot Auto-merge (Cron)
+
+on:
+  schedule:
+    # 20 minutes after the dependabot.yml update window (21:10), so a PR
+    # whose quarantine has passed merges the same evening
+    - cron: '30 21 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  automerge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: cmiic/dependabot-automation/cron@f874340144823234f1e94e136745bade9d42e862 # main
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          quarantine-days: "1"
