@@ -81,6 +81,7 @@ jobs:
       - uses: cmiic/dependabot-automation/merge@<sha>
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          quarantine-days: "1"
 ```
 
 `cron` wrapper:
@@ -104,7 +105,52 @@ jobs:
       - uses: cmiic/dependabot-automation/cron@<sha>
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          quarantine-days: "1"
 ```
+
+### Combined wrapper (optional, lower latency)
+
+Without this, an approved PR whose quarantine has passed waits for the next scheduled cron run even when a rebase has just re-validated it. To merge on the PR event itself, run the cron action as a second step of the `merge` wrapper, gated on the evaluation result:
+
+```yaml
+name: Dependabot Auto-merge
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+
+permissions:
+  contents: write # the cron step merges via the pull request merge endpoint
+  pull-requests: write
+
+jobs:
+  automerge:
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - id: evaluate
+        uses: cmiic/dependabot-automation/merge@<sha>
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          quarantine-days: "1"
+
+      - if: steps.evaluate.outputs.quarantine-passed == 'true'
+        uses: cmiic/dependabot-automation/cron@<sha>
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          quarantine-days: "1"
+```
+
+Notes on this pattern:
+
+- The typical fire path is a Dependabot rebase (`synchronize`) after quarantine has passed: the evaluation carries the quarantine timestamp forward, `quarantine-passed` is `true`, and the cron step drains the queue immediately instead of waiting for the schedule. On `opened`, quarantine has not passed yet, so the cron step is skipped.
+- Keep the scheduled `cron` wrapper as well. Quarantine expiry is a time event, not a PR event: a PR that sees no further pushes or rebases after its quarantine passes is only picked up by the schedule.
+- The inline cron step uses the same queue semantics as the scheduled one: it advances the oldest advanceable approved candidate, which may be a different PR than the one that triggered the run. With several PRs piled up, each Dependabot event advances one.
+- Concurrent runs (several PR events close together, or overlap with the scheduled cron) are tolerated: a losing direct merge surfaces as 405/409 and is stepped over, and enabling auto-merge is idempotent.
+- This grants `contents: write` to a `pull_request`-triggered workflow, unlike the evaluation-only `merge` wrapper which needs just `contents: read`. The `dependabot[bot]` gate and Dependabot commit verification are the controls standing between that token and a tampered branch — do not combine this pattern with `skip-commit-verification: true`.
 
 ## Inputs
 
@@ -112,6 +158,7 @@ Shared inputs:
 
 - `github-token`: required
 - `quarantine-days`: default `3`
+  Since July 2026, Dependabot version updates apply a 3-day package cooldown by default before a PR is even opened, so new releases are already at least three days old on arrival. Stacking the full default quarantine on top of that mostly adds latency; `quarantine-days: "1"` (as in the examples above) is usually enough. Note that security updates skip the cooldown, so the quarantine is still the only delay for those. The default remains `3` so existing setups keep their behavior unchanged; expect it to be lowered in a future major version.
 
 `merge`-only inputs:
 
