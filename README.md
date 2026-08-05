@@ -146,9 +146,9 @@ jobs:
 
 Notes on this pattern:
 
-- The typical fire path is a Dependabot rebase (`synchronize`) after quarantine has passed: the evaluation carries the quarantine timestamp forward, `quarantine-passed` is `true`, and the cron step drains the queue immediately instead of waiting for the schedule. On `opened`, quarantine has not passed yet, so the cron step is skipped.
+- The typical trigger path is a Dependabot rebase (`synchronize`) after quarantine has passed: the evaluation carries the quarantine timestamp forward, `quarantine-passed` is `true`, and the cron step advances the queue immediately instead of waiting for the schedule. On `opened`, quarantine has not passed yet, so the cron step is skipped.
 - Keep the scheduled `cron` wrapper as well. Quarantine expiry is a time event, not a PR event: a PR that sees no further pushes or rebases after its quarantine passes is only picked up by the schedule.
-- The inline cron step uses the same queue semantics as the scheduled one: it advances the oldest advanceable approved candidate, which may be a different PR than the one that triggered the run. With several PRs piled up, each Dependabot event advances one.
+- The inline cron step uses the same queue semantics as the scheduled one: it advances the oldest approved candidate it can actually advance, which may be a different PR than the one that triggered the run. With several PRs piled up, each Dependabot event advances one.
 - Concurrent runs (several PR events close together, or overlap with the scheduled cron) are tolerated: a losing direct merge surfaces as 405/409 and is stepped over, and enabling auto-merge is idempotent.
 - This grants `contents: write` to a `pull_request`-triggered workflow, unlike the evaluation-only `merge` wrapper which needs just `contents: read`. The `dependabot[bot]` gate and Dependabot commit verification are the controls standing between that token and a tampered branch — do not combine this pattern with `skip-commit-verification: true`.
 
