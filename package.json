@@ -23,18 +23,18 @@
     "lint:md": "markdownlint-cli2"
   },
   "dependencies": {
-    "toml": "4.1.1"
+    "toml": "5.0.0"
   },
   "devDependencies": {
     "@stylistic/eslint-plugin": "5.10.0",
-    "@types/node": "25.6.2",
+    "@types/node": "26.1.2",
     "@eslint/js": "10.0.1",
     "esbuild": "0.28.1",
     "eslint": "10.8.0",
-    "globals": "17.7.0",
-    "markdownlint-cli2": "0.23.1",
+    "globals": "17.9.0",
+    "markdownlint-cli2": "0.23.2",
     "typescript": "6.0.3",
-    "typescript-eslint": "8.65.0"
+    "typescript-eslint": "8.66.0"
   },
   "overrides": {
     "js-yaml": "5.2.2"

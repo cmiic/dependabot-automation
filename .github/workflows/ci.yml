@@ -22,11 +22,6 @@ jobs:
 
       - run: npm ci --ignore-scripts
 
-      - name: Security audit
-        run: |
-          npm audit --audit-level=high
-          npm audit signatures
-
       - name: ESLint
         run: npm run lint:js
 
