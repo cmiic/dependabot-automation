@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - id: evaluate
-        uses: cmiic/dependabot-automation/merge@f874340144823234f1e94e136745bade9d42e862 # main
+        uses: cmiic/dependabot-automation/merge@7d6c53562ee236333a10aec757c763a95e3ecfa3 # main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           quarantine-days: "1"
