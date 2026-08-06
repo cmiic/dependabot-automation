@@ -27,7 +27,7 @@ jobs:
           trusted-action-owners: actions,github,dependabot,cmiic
 
       - if: steps.evaluate.outputs.candidate == 'true' && steps.evaluate.outputs.quarantine-passed == 'true'
-        uses: cmiic/dependabot-automation/cron@f874340144823234f1e94e136745bade9d42e862 # main
+        uses: cmiic/dependabot-automation/cron@4dec29fb315c0837e6e039fc7e8ce2c04e51042e # main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           quarantine-days: "1"
