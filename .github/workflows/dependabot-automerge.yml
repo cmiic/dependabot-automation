@@ -15,6 +15,7 @@ jobs:
   automerge:
     if: github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - id: evaluate
         uses: cmiic/dependabot-automation/merge@f874340144823234f1e94e136745bade9d42e862 # main
