@@ -14,6 +14,7 @@ permissions:
 jobs:
   automerge:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: cmiic/dependabot-automation/cron@4dec29fb315c0837e6e039fc7e8ce2c04e51042e # main
         with:
