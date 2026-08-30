@@ -15,6 +15,17 @@ permissions:
 jobs:
   sonarqube:
     name: SonarQube
+    # SONAR_TOKEN is not reachable from either kind of pull request that cannot
+    # see repository secrets: forks get none, and Dependabot reads the separate
+    # Dependabot secrets store, which is empty here. In both cases the token
+    # resolves to "" and the scan fails on authentication. Skipping beats
+    # failing -- main is not branch-protected so it would not have blocked a
+    # merge, but it would have put a red X on every Dependabot PR, which is the
+    # traffic this repository exists to handle.
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login != 'dependabot[bot]')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
