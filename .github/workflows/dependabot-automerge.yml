@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - id: evaluate
-        uses: cmiic/dependabot-automation/merge@f874340144823234f1e94e136745bade9d42e862 # main
+        uses: cmiic/dependabot-automation/merge@0f69e7d97e0c42d5fe1b5f3a3726b732415b7e29 # main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           quarantine-days: "1"
