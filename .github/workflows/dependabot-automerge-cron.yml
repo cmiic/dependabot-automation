@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: cmiic/dependabot-automation/cron@4dec29fb315c0837e6e039fc7e8ce2c04e51042e # main
+      - uses: cmiic/dependabot-automation/cron@0f69e7d97e0c42d5fe1b5f3a3726b732415b7e29 # main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           quarantine-days: "1"
