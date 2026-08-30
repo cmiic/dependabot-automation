@@ -29,6 +29,31 @@ jobs:
       - name: markdownlint
         run: npm run lint:md
 
+      # Scope is the runtime dependency closure -- Trivy's default, kept on
+      # purpose. What ships is the committed dist/ bundle, so only runtime code
+      # carries a distribution obligation; eslint, typescript and esbuild never
+      # reach a consumer. That closure is a single package today only because
+      # `toml` happens to have no dependencies of its own: a runtime dep that
+      # brings a tree with it is covered transitively, all the way down.
+      # Resist widening this with TRIVY_INCLUDE_DEV_DEPS, which pulls in all 203
+      # locked packages and lets a copyleft build tool fail CI over code nobody
+      # receives. Licences come from package-lock.json's per-package metadata,
+      # so the step needs neither node_modules nor a `license` field in
+      # package.json.
+      - name: Trivy license scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: license
+          # Trivy maps its licence categories onto severities: forbidden ->
+          # CRITICAL, restricted (GPL and friends) -> HIGH. Gating on those two
+          # fails the job on an incompatible licence without listing the
+          # permissive ones that make up the rest of the tree.
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          hide-progress: "true"
+
   test:
     name: Test
     needs: lint
