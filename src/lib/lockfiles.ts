@@ -1,7 +1,8 @@
-import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 
-import { listChangedFiles, pathExistsInGitRevision, runGit } from './pr-changes.ts'
+import type { ChangedFileComparison, ChangedFileContents } from './compare-changed-files.ts'
+import { compareChangedFiles, getErrorMessage } from './compare-changed-files.ts'
+import { listChangedFiles } from './pr-changes.ts'
 
 const LOCKFILE_BASENAMES = new Set(['package-lock.json', 'npm-shrinkwrap.json'])
 const UNSUPPORTED_LOCKFILE_BASENAMES = new Set(['yarn.lock', 'pnpm-lock.yaml'])
@@ -28,7 +29,7 @@ function addDependenciesFromPackages (packages: LockfilePackages, dependencies: 
       continue
     }
 
-    const match = packagePath.match(/node_modules\/(.+)$/)
+    const match = /node_modules\/(.+)$/.exec(packagePath)
     const dependencyPath = match?.[1]
 
     if (!dependencyPath) {
@@ -60,17 +61,6 @@ export function extractDependencies (lockfile: unknown): Set<string> {
   return dependencies
 }
 
-function getErrorMessage (error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error)
-  const normalized = message.replace(/\s+/g, ' ').trim()
-
-  if (normalized.length <= 240) {
-    return normalized
-  }
-
-  return `${normalized.slice(0, 237)}...`
-}
-
 export function findChangedLockfiles ({ baseSha, headSha, cwd = process.cwd() }: { baseSha: string, headSha: string, cwd?: string }): { changedFiles: string[], unsupportedFiles: string[] } {
   const changedFiles = listChangedFiles({ baseSha, headSha, cwd })
 
@@ -78,6 +68,27 @@ export function findChangedLockfiles ({ baseSha, headSha, cwd = process.cwd() }:
     changedFiles: changedFiles.filter(isSupportedLockfile),
     unsupportedFiles: changedFiles.filter(isUnsupportedLockfile)
   }
+}
+
+function compareLockfiles ({ file, baseContent, headContent }: ChangedFileContents): ChangedFileComparison {
+  const newDependencies: string[] = []
+
+  try {
+    const baseLockfile = JSON.parse(baseContent) as NpmLockfile
+    const headLockfile = JSON.parse(headContent) as NpmLockfile
+    const baseDependencies = extractDependencies(baseLockfile)
+    const headDependencies = extractDependencies(headLockfile)
+
+    for (const dependency of Array.from(headDependencies).sort()) {
+      if (!baseDependencies.has(dependency)) {
+        newDependencies.push(`${file}: ${dependency}`)
+      }
+    }
+  } catch (error) {
+    return { newDependencies: [], errors: [`${file}:parse-failed:${getErrorMessage(error)}`] }
+  }
+
+  return { newDependencies, errors: [] }
 }
 
 export function checkChangedLockfiles ({ baseSha, headSha, cwd = process.cwd() }: { baseSha: string, headSha: string, cwd?: string }): {
@@ -90,57 +101,12 @@ export function checkChangedLockfiles ({ baseSha, headSha, cwd = process.cwd() }
   errors: string[]
 } {
   const { changedFiles, unsupportedFiles } = findChangedLockfiles({ baseSha, headSha, cwd })
-  const newDependencies: string[] = []
-  const errors: string[] = []
   const skippedFiles: string[] = []
+  const errors = unsupportedFiles.map(file => `${file}:unsupported-lockfile`)
 
-  for (const file of unsupportedFiles) {
-    errors.push(`${file}:unsupported-lockfile`)
-  }
-
-  for (const file of changedFiles) {
-    const fullPath = path.join(cwd, file)
-
-    if (!existsSync(fullPath)) {
-      errors.push(`${file}:missing-in-head`)
-      continue
-    }
-
-    let baseContent: string
-    try {
-      baseContent = runGit(['show', `${baseSha}:${file}`], cwd)
-    } catch (error) {
-      if (!pathExistsInGitRevision({ revision: baseSha, filePath: file, cwd })) {
-        errors.push(`${file}:missing-in-base`)
-      } else {
-        errors.push(`${file}:git-show-failed:${getErrorMessage(error)}`)
-      }
-      continue
-    }
-
-    let headContent: string
-    try {
-      headContent = readFileSync(fullPath, 'utf8')
-    } catch (error) {
-      errors.push(`${file}:read-failed:${getErrorMessage(error)}`)
-      continue
-    }
-
-    try {
-      const baseLockfile = JSON.parse(baseContent) as NpmLockfile
-      const headLockfile = JSON.parse(headContent) as NpmLockfile
-      const baseDependencies = extractDependencies(baseLockfile)
-      const headDependencies = extractDependencies(headLockfile)
-
-      for (const dependency of Array.from(headDependencies).sort()) {
-        if (!baseDependencies.has(dependency)) {
-          newDependencies.push(`${file}: ${dependency}`)
-        }
-      }
-    } catch (error) {
-      errors.push(`${file}:parse-failed:${getErrorMessage(error)}`)
-    }
-  }
+  const comparison = compareChangedFiles({ files: changedFiles, baseSha, cwd, compare: compareLockfiles })
+  const { newDependencies } = comparison
+  errors.push(...comparison.errors)
 
   let status = 'clear'
   if (unsupportedFiles.length > 0) {

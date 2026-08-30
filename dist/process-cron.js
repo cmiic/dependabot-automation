@@ -50,7 +50,7 @@ function normalizeMergeMethod(raw = "squash") {
 function calculateAgeDays(createdAt, now = Date.now()) {
   const createdTs = Date.parse(createdAt);
   if (Number.isNaN(createdTs)) {
-    throw new Error(`Invalid created_at timestamp: ${createdAt}`);
+    throw new TypeError(`Invalid created_at timestamp: ${createdAt}`);
   }
   return Math.floor((now - createdTs) / 864e5);
 }
@@ -79,7 +79,7 @@ var GitHubClient = class {
     if (!token2) {
       throw new Error("Missing GitHub token");
     }
-    if (!repository || !repository.includes("/")) {
+    if (!repository?.includes("/")) {
       throw new Error(`Invalid GITHUB_REPOSITORY value: ${repository}`);
     }
     this.token = token2;
@@ -224,7 +224,7 @@ var githubOutputPath = requiredEnv("GITHUB_OUTPUT");
 function setOutput(name, value) {
   const delimiter = `EOF_${randomUUID()}`;
   appendFileSync(githubOutputPath, `${name}<<${delimiter}
-${String(value ?? "")}
+${String(value)}
 ${delimiter}
 `);
 }

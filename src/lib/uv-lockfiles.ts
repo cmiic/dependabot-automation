@@ -1,9 +1,10 @@
-import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 
 import toml from 'toml'
 
-import { listChangedFiles, pathExistsInGitRevision, runGit } from './pr-changes.ts'
+import type { ChangedFileComparison, ChangedFileContents } from './compare-changed-files.ts'
+import { compareChangedFiles, getErrorMessage } from './compare-changed-files.ts'
+import { listChangedFiles } from './pr-changes.ts'
 
 const UV_LOCKFILE_BASENAME = 'uv.lock'
 
@@ -35,7 +36,7 @@ function parseUvLock (content: string): Record<string, unknown> {
 
 export function extractDependencies (lockfile: UvLockfile): Set<string> {
   if (!Array.isArray(lockfile.package)) {
-    throw new Error('unsupported-lockfile-format: expected lockfile.package array')
+    throw new TypeError('unsupported-lockfile-format: expected lockfile.package array')
   }
 
   const dependencies = new Set<string>()
@@ -44,23 +45,33 @@ export function extractDependencies (lockfile: UvLockfile): Set<string> {
   return dependencies
 }
 
-function getErrorMessage (error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error)
-  const normalized = message.replace(/\s+/g, ' ').trim()
-
-  if (normalized.length <= 240) {
-    return normalized
-  }
-
-  return `${normalized.slice(0, 237)}...`
-}
-
 export function findChangedUvLockfiles ({ baseSha, headSha, changedFiles, cwd = process.cwd() }: { baseSha: string, headSha: string, changedFiles?: string[], cwd?: string }): { changedFiles: string[] } {
   const allChangedFiles = changedFiles ?? listChangedFiles({ baseSha, headSha, cwd })
 
   return {
     changedFiles: allChangedFiles.filter(isUvLockfile)
   }
+}
+
+function compareUvLockfiles ({ file, baseContent, headContent }: ChangedFileContents): ChangedFileComparison {
+  const newDependencies: string[] = []
+
+  try {
+    const baseLockfile = parseUvLock(baseContent)
+    const headLockfile = parseUvLock(headContent)
+    const baseDependencies = extractDependencies(baseLockfile)
+    const headDependencies = extractDependencies(headLockfile)
+
+    for (const dependency of Array.from(headDependencies).sort()) {
+      if (!baseDependencies.has(dependency)) {
+        newDependencies.push(`${file}: ${dependency}`)
+      }
+    }
+  } catch (error) {
+    return { newDependencies: [], errors: [`${file}:parse-failed:${getErrorMessage(error)}`] }
+  }
+
+  return { newDependencies, errors: [] }
 }
 
 export function checkChangedUvLockfiles ({ baseSha, headSha, cwd = process.cwd() }: { baseSha: string, headSha: string, cwd?: string }): {
@@ -72,53 +83,9 @@ export function checkChangedUvLockfiles ({ baseSha, headSha, cwd = process.cwd()
   errors: string[]
 } {
   const { changedFiles } = findChangedUvLockfiles({ baseSha, headSha, cwd })
-  const newDependencies: string[] = []
-  const errors: string[] = []
   const skippedFiles: string[] = []
 
-  for (const file of changedFiles) {
-    const fullPath = path.join(cwd, file)
-
-    if (!existsSync(fullPath)) {
-      errors.push(`${file}:missing-in-head`)
-      continue
-    }
-
-    let baseContent: string
-    try {
-      baseContent = runGit(['show', `${baseSha}:${file}`], cwd)
-    } catch (error) {
-      if (!pathExistsInGitRevision({ revision: baseSha, filePath: file, cwd })) {
-        errors.push(`${file}:missing-in-base`)
-      } else {
-        errors.push(`${file}:git-show-failed:${getErrorMessage(error)}`)
-      }
-      continue
-    }
-
-    let headContent: string
-    try {
-      headContent = readFileSync(fullPath, 'utf8')
-    } catch (error) {
-      errors.push(`${file}:read-failed:${getErrorMessage(error)}`)
-      continue
-    }
-
-    try {
-      const baseLockfile = parseUvLock(baseContent)
-      const headLockfile = parseUvLock(headContent)
-      const baseDependencies = extractDependencies(baseLockfile)
-      const headDependencies = extractDependencies(headLockfile)
-
-      for (const dependency of Array.from(headDependencies).sort()) {
-        if (!baseDependencies.has(dependency)) {
-          newDependencies.push(`${file}: ${dependency}`)
-        }
-      }
-    } catch (error) {
-      errors.push(`${file}:parse-failed:${getErrorMessage(error)}`)
-    }
-  }
+  const { newDependencies, errors } = compareChangedFiles({ files: changedFiles, baseSha, cwd, compare: compareUvLockfiles })
 
   let status = 'clear'
   if (changedFiles.length === 0) {

@@ -4802,20 +4802,20 @@ var require_compiler = __commonJS({
         obj[lastKey] = value;
       }
       function setPath(node) {
-        var path5 = node.value;
-        var quotedPath = path5.map(quoteDottedString).join(".");
+        var path6 = node.value;
+        var quotedPath = path6.map(quoteDottedString).join(".");
         var off = node.offset;
         if (assignedPaths.has(quotedPath)) {
-          genError("Cannot redefine existing key '" + path5 + "'.", off);
+          genError("Cannot redefine existing key '" + path6 + "'.", off);
         }
         assignedPaths.add(quotedPath);
         explicitTablePaths.add(quotedPath);
-        context = deepRef(data, path5, createTable(), off);
-        currentPath = path5;
+        context = deepRef(data, path6, createTable(), off);
+        currentPath = path6;
       }
       function addTableArray(node) {
-        var path5 = node.value;
-        var quotedPath = path5.map(quoteDottedString).join(".");
+        var path6 = node.value;
+        var quotedPath = path6.map(quoteDottedString).join(".");
         var off = node.offset;
         if (valueAssignments.has(quotedPath)) {
           genError("Cannot append to statically defined array '" + quotedPath + "'.", off);
@@ -4827,14 +4827,14 @@ var require_compiler = __commonJS({
           if (isSameOrSubPath(p, quotedPath)) valueAssignments.delete(p);
         });
         assignedPaths.add(quotedPath);
-        context = deepRef(data, path5, createTableArray(), off);
-        currentPath = path5;
+        context = deepRef(data, path6, createTableArray(), off);
+        currentPath = path6;
         if (context instanceof Array) {
           var newObj = createTable();
           context.push(newObj);
           context = newObj;
         } else {
-          genError("Cannot redefine existing key '" + path5 + "'.", off);
+          genError("Cannot redefine existing key '" + path6 + "'.", off);
         }
       }
       function deepRef(start, keys, value, off) {
@@ -4898,8 +4898,8 @@ var require_compiler = __commonJS({
       function makeFullPath(keys) {
         return pathKey(currentPath.concat(keys));
       }
-      function isSameOrSubPath(path5, prefix) {
-        return path5 === prefix || path5.indexOf(prefix + ".") === 0;
+      function isSameOrSubPath(path6, prefix) {
+        return path6 === prefix || path6.indexOf(prefix + ".") === 0;
       }
     }
     module.exports = {
@@ -4924,7 +4924,7 @@ var require_toml = __commonJS({
 });
 
 // src/entrypoints/evaluate-pull-request.ts
-import { appendFileSync, readFileSync as readFileSync4 } from "node:fs";
+import { appendFileSync, readFileSync as readFileSync3 } from "node:fs";
 import { randomUUID } from "node:crypto";
 
 // src/lib/approval-signal.ts
@@ -5049,7 +5049,7 @@ function parseCsvList(raw) {
 function calculateAgeDays(createdAt, now = Date.now()) {
   const createdTs = Date.parse(createdAt);
   if (Number.isNaN(createdTs)) {
-    throw new Error(`Invalid created_at timestamp: ${createdAt}`);
+    throw new TypeError(`Invalid created_at timestamp: ${createdAt}`);
   }
   return Math.floor((now - createdTs) / 864e5);
 }
@@ -5078,7 +5078,7 @@ var GitHubClient = class {
     if (!token2) {
       throw new Error("Missing GitHub token");
     }
-    if (!repository || !repository.includes("/")) {
+    if (!repository?.includes("/")) {
       throw new Error(`Invalid GITHUB_REPOSITORY value: ${repository}`);
     }
     this.token = token2;
@@ -5091,8 +5091,8 @@ var GitHubClient = class {
     this.owner = owner;
     this.repo = repo;
   }
-  async request(method, path5, body) {
-    const response = await fetch(`${this.serverUrl}${path5}`, {
+  async request(method, path6, body) {
+    const response = await fetch(`${this.serverUrl}${path6}`, {
       method,
       headers: {
         "Accept": "application/vnd.github+json",
@@ -5106,7 +5106,7 @@ var GitHubClient = class {
     const text = await response.text();
     const data = text ? JSON.parse(text) : null;
     if (!response.ok) {
-      throw new GitHubRequestError(`${method} ${path5} failed with ${response.status}`, response.status, data);
+      throw new GitHubRequestError(`${method} ${path6} failed with ${response.status}`, response.status, data);
     }
     return data;
   }
@@ -5212,6 +5212,9 @@ var GitHubClient = class {
 };
 
 // src/lib/lockfiles.ts
+import path3 from "node:path";
+
+// src/lib/compare-changed-files.ts
 import { existsSync, readFileSync } from "node:fs";
 import path2 from "node:path";
 
@@ -5232,7 +5235,7 @@ var DOCKER_COMPOSE_BASENAMES = /* @__PURE__ */ new Set([
   "compose.yaml"
 ]);
 function normalizePath(filePath) {
-  return filePath.replace(/\\/g, "/");
+  return filePath.replaceAll("\\", "/");
 }
 function hasYamlExtension(filePath) {
   return /\.ya?ml$/i.test(filePath);
@@ -5327,21 +5330,70 @@ function findUnexpectedFiles({ packageEcosystem: packageEcosystem2, changedFiles
   return changedFiles.filter((filePath) => !matcher(filePath));
 }
 
+// src/lib/compare-changed-files.ts
+var MAX_ERROR_MESSAGE_LENGTH = 240;
+var TRUNCATION_SUFFIX = "...";
+function getErrorMessage(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  const normalized = message.replace(/\s+/g, " ").trim();
+  if (normalized.length <= MAX_ERROR_MESSAGE_LENGTH) {
+    return normalized;
+  }
+  return `${normalized.slice(0, MAX_ERROR_MESSAGE_LENGTH - TRUNCATION_SUFFIX.length)}${TRUNCATION_SUFFIX}`;
+}
+function readChangedFile({ file, baseSha, cwd }) {
+  const fullPath = path2.join(cwd, file);
+  if (!existsSync(fullPath)) {
+    return { error: `${file}:missing-in-head` };
+  }
+  let baseContent;
+  try {
+    baseContent = runGit(["show", `${baseSha}:${file}`], cwd);
+  } catch (error) {
+    if (!pathExistsInGitRevision({ revision: baseSha, filePath: file, cwd })) {
+      return { error: `${file}:missing-in-base` };
+    }
+    return { error: `${file}:git-show-failed:${getErrorMessage(error)}` };
+  }
+  let headContent;
+  try {
+    headContent = readFileSync(fullPath, "utf8");
+  } catch (error) {
+    return { error: `${file}:read-failed:${getErrorMessage(error)}` };
+  }
+  return { file, baseContent, headContent };
+}
+function compareChangedFiles({ files, baseSha, cwd, compare }) {
+  const newDependencies = [];
+  const errors = [];
+  for (const file of files) {
+    const contents = readChangedFile({ file, baseSha, cwd });
+    if ("error" in contents) {
+      errors.push(contents.error);
+      continue;
+    }
+    const comparison = compare(contents);
+    newDependencies.push(...comparison.newDependencies);
+    errors.push(...comparison.errors);
+  }
+  return { newDependencies, errors };
+}
+
 // src/lib/lockfiles.ts
 var LOCKFILE_BASENAMES = /* @__PURE__ */ new Set(["package-lock.json", "npm-shrinkwrap.json"]);
 var UNSUPPORTED_LOCKFILE_BASENAMES = /* @__PURE__ */ new Set(["yarn.lock", "pnpm-lock.yaml"]);
 function isSupportedLockfile(filePath) {
-  return LOCKFILE_BASENAMES.has(path2.basename(filePath));
+  return LOCKFILE_BASENAMES.has(path3.basename(filePath));
 }
 function isUnsupportedLockfile(filePath) {
-  return UNSUPPORTED_LOCKFILE_BASENAMES.has(path2.basename(filePath));
+  return UNSUPPORTED_LOCKFILE_BASENAMES.has(path3.basename(filePath));
 }
 function addDependenciesFromPackages(packages, dependencies) {
   for (const packagePath of Object.keys(packages)) {
     if (!packagePath) {
       continue;
     }
-    const match = packagePath.match(/node_modules\/(.+)$/);
+    const match = /node_modules\/(.+)$/.exec(packagePath);
     const dependencyPath = match?.[1];
     if (!dependencyPath) {
       continue;
@@ -5360,14 +5412,6 @@ function extractDependencies(lockfile) {
   addDependenciesFromPackages(lockfile.packages, dependencies);
   return dependencies;
 }
-function getErrorMessage(error) {
-  const message = error instanceof Error ? error.message : String(error);
-  const normalized = message.replace(/\s+/g, " ").trim();
-  if (normalized.length <= 240) {
-    return normalized;
-  }
-  return `${normalized.slice(0, 237)}...`;
-}
 function findChangedLockfiles({ baseSha, headSha, cwd = process.cwd() }) {
   const changedFiles = listChangedFiles({ baseSha, headSha, cwd });
   return {
@@ -5375,52 +5419,30 @@ function findChangedLockfiles({ baseSha, headSha, cwd = process.cwd() }) {
     unsupportedFiles: changedFiles.filter(isUnsupportedLockfile)
   };
 }
+function compareLockfiles({ file, baseContent, headContent }) {
+  const newDependencies = [];
+  try {
+    const baseLockfile = JSON.parse(baseContent);
+    const headLockfile = JSON.parse(headContent);
+    const baseDependencies = extractDependencies(baseLockfile);
+    const headDependencies = extractDependencies(headLockfile);
+    for (const dependency of Array.from(headDependencies).sort()) {
+      if (!baseDependencies.has(dependency)) {
+        newDependencies.push(`${file}: ${dependency}`);
+      }
+    }
+  } catch (error) {
+    return { newDependencies: [], errors: [`${file}:parse-failed:${getErrorMessage(error)}`] };
+  }
+  return { newDependencies, errors: [] };
+}
 function checkChangedLockfiles({ baseSha, headSha, cwd = process.cwd() }) {
   const { changedFiles, unsupportedFiles } = findChangedLockfiles({ baseSha, headSha, cwd });
-  const newDependencies = [];
-  const errors = [];
   const skippedFiles = [];
-  for (const file of unsupportedFiles) {
-    errors.push(`${file}:unsupported-lockfile`);
-  }
-  for (const file of changedFiles) {
-    const fullPath = path2.join(cwd, file);
-    if (!existsSync(fullPath)) {
-      errors.push(`${file}:missing-in-head`);
-      continue;
-    }
-    let baseContent;
-    try {
-      baseContent = runGit(["show", `${baseSha}:${file}`], cwd);
-    } catch (error) {
-      if (!pathExistsInGitRevision({ revision: baseSha, filePath: file, cwd })) {
-        errors.push(`${file}:missing-in-base`);
-      } else {
-        errors.push(`${file}:git-show-failed:${getErrorMessage(error)}`);
-      }
-      continue;
-    }
-    let headContent;
-    try {
-      headContent = readFileSync(fullPath, "utf8");
-    } catch (error) {
-      errors.push(`${file}:read-failed:${getErrorMessage(error)}`);
-      continue;
-    }
-    try {
-      const baseLockfile = JSON.parse(baseContent);
-      const headLockfile = JSON.parse(headContent);
-      const baseDependencies = extractDependencies(baseLockfile);
-      const headDependencies = extractDependencies(headLockfile);
-      for (const dependency of Array.from(headDependencies).sort()) {
-        if (!baseDependencies.has(dependency)) {
-          newDependencies.push(`${file}: ${dependency}`);
-        }
-      }
-    } catch (error) {
-      errors.push(`${file}:parse-failed:${getErrorMessage(error)}`);
-    }
-  }
+  const errors = unsupportedFiles.map((file) => `${file}:unsupported-lockfile`);
+  const comparison = compareChangedFiles({ files: changedFiles, baseSha, cwd, compare: compareLockfiles });
+  const { newDependencies } = comparison;
+  errors.push(...comparison.errors);
   let status = "clear";
   if (unsupportedFiles.length > 0) {
     status = "unsupported-lockfile";
@@ -5444,7 +5466,7 @@ function checkChangedLockfiles({ baseSha, headSha, cwd = process.cwd() }) {
 
 // src/lib/pip-requirements.ts
 import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:fs";
-import path3 from "node:path";
+import path4 from "node:path";
 var SIMPLE_REQUIREMENT_PATTERN = /^([A-Za-z0-9][A-Za-z0-9._-]*)(\s*\[[A-Za-z0-9._,\-\s]+\])?\s*(===|==|~=|!=|<=|>=|<|>)\s*([^,;\s\\]+)\s*(?:;\s*(.+))?$/;
 function normalizePackageName(name) {
   return name.toLowerCase().replace(/[-_.]+/g, "-");
@@ -5459,10 +5481,10 @@ function normalizeMarker(marker) {
   return marker ? marker.replace(/\s+/g, " ").trim() : "";
 }
 function normalizePath2(filePath) {
-  return filePath.replace(/\\/g, "/");
+  return filePath.replaceAll("\\", "/");
 }
 function isNamedPipRequirementsFile(filePath) {
-  const basename = path3.basename(normalizePath2(filePath)).toLowerCase();
+  const basename = path4.basename(normalizePath2(filePath)).toLowerCase();
   if (!/\.(txt|in)$/i.test(basename)) {
     return false;
   }
@@ -5470,7 +5492,7 @@ function isNamedPipRequirementsFile(filePath) {
 }
 function isAmbiguousRequirementsDirectoryFile(filePath) {
   const normalized = normalizePath2(filePath);
-  const basename = path3.basename(normalized).toLowerCase();
+  const basename = path4.basename(normalized).toLowerCase();
   return /\.(txt|in)$/i.test(basename) && (normalized.startsWith("requirements/") || normalized.includes("/requirements/")) && !isNamedPipRequirementsFile(filePath);
 }
 function stripInlineComment(line) {
@@ -5516,7 +5538,7 @@ function parseRequirementLine(line, lineNumber = 1) {
   if (/\s@\s/.test(content)) {
     return complexLine(content, lineNumber, "direct-reference");
   }
-  const match = content.match(SIMPLE_REQUIREMENT_PATTERN);
+  const match = SIMPLE_REQUIREMENT_PATTERN.exec(content);
   if (!match && content.includes(",")) {
     return complexLine(content, lineNumber, "range");
   }
@@ -5628,7 +5650,7 @@ function loadAvailableChangedFileContents({ baseSha, file, cwd }) {
       return null;
     }
   }
-  const fullPath = path3.join(cwd, file);
+  const fullPath = path4.join(cwd, file);
   if (existsSync2(fullPath)) {
     try {
       contents.push(readFileSync2(fullPath, "utf8"));
@@ -5663,72 +5685,42 @@ function classifyChangedPipFiles({ baseSha, headSha, changedFiles, cwd = process
     unexpectedFiles
   };
 }
-function getErrorMessage2(error) {
-  const message = error instanceof Error ? error.message : String(error);
-  const normalized = message.replace(/\s+/g, " ").trim();
-  if (normalized.length <= 240) {
-    return normalized;
-  }
-  return `${normalized.slice(0, 237)}...`;
-}
 function findChangedPipRequirementFiles({ baseSha, headSha, changedFiles, cwd = process.cwd() }) {
   const allChangedFiles = changedFiles ?? listChangedFiles({ baseSha, headSha, cwd });
   return {
     changedFiles: allChangedFiles.filter(isPipRequirementsFile)
   };
 }
-function checkChangedPipRequirements({ baseSha, headSha, changedFiles, cwd = process.cwd() }) {
-  const { changedFiles: requirementFiles } = findChangedPipRequirementFiles({ baseSha, headSha, changedFiles, cwd });
+function comparePipRequirements({ file, baseContent, headContent }) {
   const newDependencies = [];
-  const errors = [];
-  const skippedFiles = [];
-  for (const file of requirementFiles) {
-    const fullPath = path3.join(cwd, file);
-    if (!existsSync2(fullPath)) {
-      errors.push(`${file}:missing-in-head`);
+  const baseRequirements = extractRequirements(baseContent);
+  const headRequirements = extractRequirements(headContent);
+  const errors = findComplexRequirementLineErrors({ file, baseRequirements, headRequirements });
+  const dependencyNames = /* @__PURE__ */ new Set([
+    ...baseRequirements.dependencies,
+    ...headRequirements.dependencies
+  ]);
+  for (const dependency of Array.from(dependencyNames).sort()) {
+    const baseKeys = baseRequirements.requirementKeysByName.get(dependency) ?? /* @__PURE__ */ new Set();
+    const headKeys = headRequirements.requirementKeysByName.get(dependency) ?? /* @__PURE__ */ new Set();
+    if (baseKeys.size === 0) {
+      newDependencies.push(`${file}: ${dependency}`);
       continue;
     }
-    let baseContent;
-    try {
-      baseContent = runGit(["show", `${baseSha}:${file}`], cwd);
-    } catch (error) {
-      if (!pathExistsInGitRevision({ revision: baseSha, filePath: file, cwd })) {
-        errors.push(`${file}:missing-in-base`);
-      } else {
-        errors.push(`${file}:git-show-failed:${getErrorMessage2(error)}`);
-      }
+    if (headKeys.size === 0) {
+      errors.push(`${file}:dependency-removed:${dependency}`);
       continue;
     }
-    let headContent;
-    try {
-      headContent = readFileSync2(fullPath, "utf8");
-    } catch (error) {
-      errors.push(`${file}:read-failed:${getErrorMessage2(error)}`);
-      continue;
-    }
-    const baseRequirements = extractRequirements(baseContent);
-    const headRequirements = extractRequirements(headContent);
-    errors.push(...findComplexRequirementLineErrors({ file, baseRequirements, headRequirements }));
-    const dependencyNames = /* @__PURE__ */ new Set([
-      ...baseRequirements.dependencies,
-      ...headRequirements.dependencies
-    ]);
-    for (const dependency of Array.from(dependencyNames).sort()) {
-      const baseKeys = baseRequirements.requirementKeysByName.get(dependency) ?? /* @__PURE__ */ new Set();
-      const headKeys = headRequirements.requirementKeysByName.get(dependency) ?? /* @__PURE__ */ new Set();
-      if (baseKeys.size === 0) {
-        newDependencies.push(`${file}: ${dependency}`);
-        continue;
-      }
-      if (headKeys.size === 0) {
-        errors.push(`${file}:dependency-removed:${dependency}`);
-        continue;
-      }
-      if (!setEquals(baseKeys, headKeys)) {
-        errors.push(`${file}:requirement-variants-changed:${dependency}`);
-      }
+    if (!setEquals(baseKeys, headKeys)) {
+      errors.push(`${file}:requirement-variants-changed:${dependency}`);
     }
   }
+  return { newDependencies, errors };
+}
+function checkChangedPipRequirements({ baseSha, headSha, changedFiles, cwd = process.cwd() }) {
+  const { changedFiles: requirementFiles } = findChangedPipRequirementFiles({ baseSha, headSha, changedFiles, cwd });
+  const skippedFiles = [];
+  const { newDependencies, errors } = compareChangedFiles({ files: requirementFiles, baseSha, cwd, compare: comparePipRequirements });
   let status = "clear";
   if (requirementFiles.length === 0) {
     status = "no-dependency-files";
@@ -5749,11 +5741,10 @@ function checkChangedPipRequirements({ baseSha, headSha, changedFiles, cwd = pro
 
 // src/lib/uv-lockfiles.ts
 var import_toml = __toESM(require_toml(), 1);
-import { existsSync as existsSync3, readFileSync as readFileSync3 } from "node:fs";
-import path4 from "node:path";
+import path5 from "node:path";
 var UV_LOCKFILE_BASENAME = "uv.lock";
 function isUvLockfile(filePath) {
-  return path4.basename(filePath) === UV_LOCKFILE_BASENAME;
+  return path5.basename(filePath) === UV_LOCKFILE_BASENAME;
 }
 function addDependenciesFromPackages2(packages, dependencies) {
   for (const pkg of packages) {
@@ -5768,19 +5759,11 @@ function parseUvLock(content) {
 }
 function extractDependencies2(lockfile) {
   if (!Array.isArray(lockfile.package)) {
-    throw new Error("unsupported-lockfile-format: expected lockfile.package array");
+    throw new TypeError("unsupported-lockfile-format: expected lockfile.package array");
   }
   const dependencies = /* @__PURE__ */ new Set();
   addDependenciesFromPackages2(lockfile.package, dependencies);
   return dependencies;
-}
-function getErrorMessage3(error) {
-  const message = error instanceof Error ? error.message : String(error);
-  const normalized = message.replace(/\s+/g, " ").trim();
-  if (normalized.length <= 240) {
-    return normalized;
-  }
-  return `${normalized.slice(0, 237)}...`;
 }
 function findChangedUvLockfiles({ baseSha, headSha, changedFiles, cwd = process.cwd() }) {
   const allChangedFiles = changedFiles ?? listChangedFiles({ baseSha, headSha, cwd });
@@ -5788,49 +5771,27 @@ function findChangedUvLockfiles({ baseSha, headSha, changedFiles, cwd = process.
     changedFiles: allChangedFiles.filter(isUvLockfile)
   };
 }
+function compareUvLockfiles({ file, baseContent, headContent }) {
+  const newDependencies = [];
+  try {
+    const baseLockfile = parseUvLock(baseContent);
+    const headLockfile = parseUvLock(headContent);
+    const baseDependencies = extractDependencies2(baseLockfile);
+    const headDependencies = extractDependencies2(headLockfile);
+    for (const dependency of Array.from(headDependencies).sort()) {
+      if (!baseDependencies.has(dependency)) {
+        newDependencies.push(`${file}: ${dependency}`);
+      }
+    }
+  } catch (error) {
+    return { newDependencies: [], errors: [`${file}:parse-failed:${getErrorMessage(error)}`] };
+  }
+  return { newDependencies, errors: [] };
+}
 function checkChangedUvLockfiles({ baseSha, headSha, cwd = process.cwd() }) {
   const { changedFiles } = findChangedUvLockfiles({ baseSha, headSha, cwd });
-  const newDependencies = [];
-  const errors = [];
   const skippedFiles = [];
-  for (const file of changedFiles) {
-    const fullPath = path4.join(cwd, file);
-    if (!existsSync3(fullPath)) {
-      errors.push(`${file}:missing-in-head`);
-      continue;
-    }
-    let baseContent;
-    try {
-      baseContent = runGit(["show", `${baseSha}:${file}`], cwd);
-    } catch (error) {
-      if (!pathExistsInGitRevision({ revision: baseSha, filePath: file, cwd })) {
-        errors.push(`${file}:missing-in-base`);
-      } else {
-        errors.push(`${file}:git-show-failed:${getErrorMessage3(error)}`);
-      }
-      continue;
-    }
-    let headContent;
-    try {
-      headContent = readFileSync3(fullPath, "utf8");
-    } catch (error) {
-      errors.push(`${file}:read-failed:${getErrorMessage3(error)}`);
-      continue;
-    }
-    try {
-      const baseLockfile = parseUvLock(baseContent);
-      const headLockfile = parseUvLock(headContent);
-      const baseDependencies = extractDependencies2(baseLockfile);
-      const headDependencies = extractDependencies2(headLockfile);
-      for (const dependency of Array.from(headDependencies).sort()) {
-        if (!baseDependencies.has(dependency)) {
-          newDependencies.push(`${file}: ${dependency}`);
-        }
-      }
-    } catch (error) {
-      errors.push(`${file}:parse-failed:${getErrorMessage3(error)}`);
-    }
-  }
+  const { newDependencies, errors } = compareChangedFiles({ files: changedFiles, baseSha, cwd, compare: compareUvLockfiles });
   let status = "clear";
   if (changedFiles.length === 0) {
     status = "no-lockfiles";
@@ -5861,7 +5822,7 @@ var githubOutputPath = requiredEnv("GITHUB_OUTPUT");
 function setOutput(name, value) {
   const delimiter = `EOF_${randomUUID()}`;
   appendFileSync(githubOutputPath, `${name}<<${delimiter}
-${String(value ?? "")}
+${String(value)}
 ${delimiter}
 `);
 }
@@ -5873,7 +5834,7 @@ function writeOutputs(outputs2) {
 function hasApprovalPayload(entry) {
   return entry.payload !== null;
 }
-var event = JSON.parse(readFileSync4(requiredEnv("GITHUB_EVENT_PATH"), "utf8"));
+var event = JSON.parse(readFileSync3(requiredEnv("GITHUB_EVENT_PATH"), "utf8"));
 var pullRequest = event.pull_request;
 var outputs = {
   "candidate": "false",
