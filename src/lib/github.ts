@@ -81,7 +81,7 @@ export function normalizeMergeMethod (raw: string | null | undefined = 'squash')
 export function calculateAgeDays (createdAt: string, now = Date.now()): number {
   const createdTs = Date.parse(createdAt)
   if (Number.isNaN(createdTs)) {
-    throw new Error(`Invalid created_at timestamp: ${createdAt}`)
+    throw new TypeError(`Invalid created_at timestamp: ${createdAt}`)
   }
 
   return Math.floor((now - createdTs) / 86_400_000)
@@ -116,7 +116,7 @@ export class GitHubClient {
       throw new Error('Missing GitHub token')
     }
 
-    if (!repository || !repository.includes('/')) {
+    if (!repository?.includes('/')) {
       throw new Error(`Invalid GITHUB_REPOSITORY value: ${repository}`)
     }
 
