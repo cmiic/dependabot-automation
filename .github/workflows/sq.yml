@@ -22,10 +22,7 @@ jobs:
     # failing -- main is not branch-protected so it would not have blocked a
     # merge, but it would have put a red X on every Dependabot PR, which is the
     # traffic this repository exists to handle.
-    if: >-
-      github.event_name != 'pull_request' ||
-      (github.event.pull_request.head.repo.full_name == github.repository &&
-      github.event.pull_request.user.login != 'dependabot[bot]')
+    if: secrets.SONAR_TOKEN != ''
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
