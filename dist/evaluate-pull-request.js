@@ -5472,7 +5472,18 @@ function checkChangedLockfiles({ baseSha, headSha, cwd = process.cwd() }) {
 // src/lib/pip-requirements.ts
 import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:fs";
 import path4 from "node:path";
-var SIMPLE_REQUIREMENT_PATTERN = /^([A-Za-z0-9][A-Za-z0-9._-]*)(\s*\[[A-Za-z0-9._,\-\s]+\])?\s*(===|[=~!<>]=|[<>])\s*([^,;\s\\]+)\s*(?:;\s*(.+))?$/;
+var SIMPLE_REQUIREMENT_PATTERN = /^([A-Za-z0-9][A-Za-z0-9._-]*)(\s*\[[A-Za-z0-9._,\-\s]+\])?\s*(===|[=~!<>]=|[<>])\s*([^,;\s\\]+)$/;
+function splitEnvironmentMarker(content) {
+  const index = content.indexOf(";");
+  if (index === -1) {
+    return { head: content };
+  }
+  const marker = content.slice(index + 1);
+  if (marker === "") {
+    return null;
+  }
+  return { head: content.slice(0, index).trimEnd(), marker };
+}
 function normalizePackageName(name) {
   return name.toLowerCase().replace(/[-_.]+/g, "-");
 }
@@ -5543,7 +5554,8 @@ function parseRequirementLine(line, lineNumber = 1) {
   if (/\s@\s/.test(content)) {
     return complexLine(content, lineNumber, "direct-reference");
   }
-  const match = SIMPLE_REQUIREMENT_PATTERN.exec(content);
+  const requirement = splitEnvironmentMarker(content);
+  const match = requirement ? SIMPLE_REQUIREMENT_PATTERN.exec(requirement.head) : null;
   if (!match && content.includes(",")) {
     return complexLine(content, lineNumber, "range");
   }
@@ -5557,7 +5569,7 @@ function parseRequirementLine(line, lineNumber = 1) {
   const rawExtras = match[2];
   const operator = match[3];
   const version = match[4];
-  const rawMarker = match[5];
+  const rawMarker = requirement?.marker;
   const name = normalizePackageName(rawName);
   const extras = normalizeExtras(rawExtras);
   const marker = normalizeMarker(rawMarker);

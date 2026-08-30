@@ -118,12 +118,13 @@ const ECOSYSTEM_FILE_MATCHERS = new Map<string, FileMatcher>([
 ])
 
 // Sonar's S4036 flags resolving "git" through PATH and is accepted rather than
-// fixed. On a GitHub-hosted runner PATH is fixed and unwriteable, which is the
-// only environment this action runs in. Pinning an absolute path is what the
-// rule asks for and would be worse: /usr/bin/git does not exist on macOS with
-// Homebrew git, nor on Windows, so it would break contributors running the
-// suite locally to gain nothing in CI. Anyone who can already write to a
-// directory on a runner's PATH can rewrite this file too.
+// fixed. What the rule asks for is an absolute path, and there is no portable
+// one: /usr/bin/git is wrong on macOS with a Homebrew git and does not exist on
+// Windows, so pinning one would break contributors running the suite locally.
+// On a GitHub-hosted runner PATH is fixed and unwriteable. A self-hosted runner
+// is the consumer's own environment and its PATH is theirs to control -- but an
+// attacker who can write to a directory on it can equally rewrite this checkout,
+// so an absolute path here would not be what stops them.
 export function runGit (args: string[], cwd = process.cwd()): string {
   return execFileSync('git', args, {
     cwd,

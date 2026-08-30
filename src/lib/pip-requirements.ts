@@ -7,7 +7,7 @@ import { compareStrings } from './compare-strings.ts'
 import { isPipRequirementsFile, listChangedFiles, pathExistsInGitRevision, runGit } from './pr-changes.ts'
 
 const SIMPLE_REQUIREMENT_PATTERN
-  = /^([A-Za-z0-9][A-Za-z0-9._-]*)(\s*\[[A-Za-z0-9._,\-\s]+\])?\s*(===|[=~!<>]=|[<>])\s*([^,;\s\\]+)\s*(?:;\s*(.+))?$/
+  = /^([A-Za-z0-9][A-Za-z0-9._-]*)(\s*\[[A-Za-z0-9._,\-\s]+\])?\s*(===|[=~!<>]=|[<>])\s*([^,;\s\\]+)$/
 
 type ComplexReason
   = | 'line-continuation'
@@ -59,6 +59,31 @@ interface ComplexLineMapEntry {
 export interface ChangedPipFileClassification {
   requirementFiles: string[]
   unexpectedFiles: string[]
+}
+
+// Both the version class and the extras class exclude ';', so the first
+// semicolon on a requirement line always begins the environment marker. Taking
+// it off here rather than inside SIMPLE_REQUIREMENT_PATTERN is what keeps that
+// pattern inside Sonar's regex complexity allowance (S5843); the tail it
+// replaces was the single most expensive part of it.
+//
+// Returning null reproduces one edge of the old pattern exactly: its marker
+// tail required at least one character after the semicolon, so a line ending
+// in a bare ';' matched nothing at all and fell through to unparseable.
+function splitEnvironmentMarker (content: string): { head: string, marker?: string } | null {
+  const index = content.indexOf(';')
+
+  if (index === -1) {
+    return { head: content }
+  }
+
+  const marker = content.slice(index + 1)
+
+  if (marker === '') {
+    return null
+  }
+
+  return { head: content.slice(0, index).trimEnd(), marker }
 }
 
 function normalizePackageName (name: string): string {
@@ -174,7 +199,8 @@ export function parseRequirementLine (line: string, lineNumber = 1): ParsedRequi
     return complexLine(content, lineNumber, 'direct-reference')
   }
 
-  const match = SIMPLE_REQUIREMENT_PATTERN.exec(content)
+  const requirement = splitEnvironmentMarker(content)
+  const match = requirement ? SIMPLE_REQUIREMENT_PATTERN.exec(requirement.head) : null
   if (!match && content.includes(',')) {
     return complexLine(content, lineNumber, 'range')
   }
@@ -191,7 +217,7 @@ export function parseRequirementLine (line: string, lineNumber = 1): ParsedRequi
   const rawExtras = match[2]
   const operator = match[3] as string
   const version = match[4] as string
-  const rawMarker = match[5]
+  const rawMarker = requirement?.marker
   const name = normalizePackageName(rawName)
   const extras = normalizeExtras(rawExtras)
   const marker = normalizeMarker(rawMarker)

@@ -98,6 +98,33 @@ test('parseRequirementLine rejects operator-shaped punctuation that is not an op
   }
 })
 
+test('parseRequirementLine handles the environment marker split at its edges', () => {
+  // The marker is taken off before the pattern runs, so these edges are now
+  // explicit code rather than a regex tail. A bare trailing semicolon matched
+  // nothing in the old pattern -- its marker tail required at least one
+  // character -- and must keep falling through to unparseable.
+  assert.equal(parseRequirementLine('pkg==1.0;').type, 'complex')
+
+  assert.partialDeepStrictEqual(parseRequirementLine('pkg==1.0 ; python_version >= "3.11"'), {
+    type: 'requirement',
+    version: '1.0',
+    marker: 'python_version >= "3.11"'
+  })
+
+  // Only the first semicolon splits; the rest belongs to the marker.
+  assert.partialDeepStrictEqual(parseRequirementLine('pkg==1.0;a;b'), {
+    type: 'requirement',
+    version: '1.0',
+    marker: 'a;b'
+  })
+
+  assert.partialDeepStrictEqual(parseRequirementLine('pkg==1.0'), {
+    type: 'requirement',
+    version: '1.0',
+    marker: ''
+  })
+})
+
 test('parseRequirementLine reads pkg<>1.0 as < with a version of >1.0', () => {
   // Not a valid PEP 440 operator, and the pattern has always split it this
   // way: < matches, and the remaining > is swallowed by the version, which

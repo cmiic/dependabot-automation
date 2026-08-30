@@ -3,7 +3,7 @@ import test from 'node:test'
 
 import { compareStrings } from '../src/lib/compare-strings.ts'
 
-test('compareStrings orders case-insensitively rather than by UTF-16 code unit', () => {
+test('compareStrings orders by locale collation rather than by UTF-16 code unit', () => {
   // The default Array.prototype.sort() puts every capital ahead of every
   // lowercase letter, so Django and Flask would sort before django. A
   // locale-aware comparator interleaves them, which is the whole reason this
