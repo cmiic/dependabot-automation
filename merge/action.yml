@@ -56,6 +56,11 @@ runs:
   steps:
     - id: guard
       shell: bash
+      env:
+        # Read through the environment rather than interpolating into the shell:
+        # a `${{ }}` expansion is spliced into the script text before bash sees
+        # it, which is the template-injection class zizmor flags.
+        PR_AUTHOR: ${{ github.event.pull_request.user.login }}
       run: |
         if [ "${{ github.event_name }}" != "pull_request" ]; then
           echo "run=false" >> "$GITHUB_OUTPUT"
@@ -71,7 +76,7 @@ runs:
           exit 0
         fi
 
-        if [ "${{ github.event.pull_request.user.login }}" != "dependabot[bot]" ]; then
+        if [ "$PR_AUTHOR" != "dependabot[bot]" ]; then
           echo "run=false" >> "$GITHUB_OUTPUT"
           echo "candidate=false" >> "$GITHUB_OUTPUT"
           echo "quarantine-passed=false" >> "$GITHUB_OUTPUT"
@@ -87,6 +92,8 @@ runs:
 
         echo "run=true" >> "$GITHUB_OUTPUT"
 
+    # persist-credentials must stay on: the next step runs `git fetch origin`,
+    # which needs the checkout's auth header to reach a private consumer repo.
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       if: steps.guard.outputs.run == 'true'
       with:
