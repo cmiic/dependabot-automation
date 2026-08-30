@@ -7,7 +7,7 @@ import { compareStrings } from './compare-strings.ts'
 import { isPipRequirementsFile, listChangedFiles, pathExistsInGitRevision, runGit } from './pr-changes.ts'
 
 const SIMPLE_REQUIREMENT_PATTERN
-  = /^([A-Za-z0-9][A-Za-z0-9._-]*)(\s*\[[A-Za-z0-9._,\-\s]+\])?\s*(===|==|~=|!=|<=|>=|<|>)\s*([^,;\s\\]+)\s*(?:;\s*(.+))?$/
+  = /^([A-Za-z0-9][A-Za-z0-9._-]*)(\s*\[[A-Za-z0-9._,\-\s]+\])?\s*(===|[=~!<>]=|[<>])\s*([^,;\s\\]+)\s*(?:;\s*(.+))?$/
 
 type ComplexReason
   = | 'line-continuation'

@@ -5472,7 +5472,7 @@ function checkChangedLockfiles({ baseSha, headSha, cwd = process.cwd() }) {
 // src/lib/pip-requirements.ts
 import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:fs";
 import path4 from "node:path";
-var SIMPLE_REQUIREMENT_PATTERN = /^([A-Za-z0-9][A-Za-z0-9._-]*)(\s*\[[A-Za-z0-9._,\-\s]+\])?\s*(===|==|~=|!=|<=|>=|<|>)\s*([^,;\s\\]+)\s*(?:;\s*(.+))?$/;
+var SIMPLE_REQUIREMENT_PATTERN = /^([A-Za-z0-9][A-Za-z0-9._-]*)(\s*\[[A-Za-z0-9._,\-\s]+\])?\s*(===|[=~!<>]=|[<>])\s*([^,;\s\\]+)\s*(?:;\s*(.+))?$/;
 function normalizePackageName(name) {
   return name.toLowerCase().replace(/[-_.]+/g, "-");
 }
