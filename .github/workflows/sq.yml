@@ -34,6 +34,20 @@ jobs:
           # The scanner only reads the history fetched above; it makes no
           # further git network calls, so the checkout credentials can go.
           persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - run: npm ci --ignore-scripts
+
+      # The scanner reads coverage/lcov.info, it does not produce it. Without
+      # this step Sonar has no coverage data and scores every changed line as
+      # uncovered, failing the new_coverage condition on any pull request that
+      # touches code.
+      - name: Generate coverage
+        run: npm run test:coverage
+
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@7006c4492b2e0ee0f816d36501671557c97f5995 # v8.1.0
         env:

@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit",
     "check": "npm run typecheck",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "test:coverage": "mkdir -p coverage && node --experimental-strip-types --test --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=coverage/lcov.info --test-reporter=spec --test-reporter-destination=stdout tests/*.test.ts",
     "test:approval": "node --experimental-strip-types --test tests/approval-signal.test.ts",
     "test:lockfiles": "node --experimental-strip-types --test tests/lockfiles.test.ts",
     "test:pip": "node --experimental-strip-types --test tests/pip-requirements.test.ts",
