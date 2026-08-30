@@ -18,7 +18,7 @@ const DOCKER_COMPOSE_BASENAMES = new Set([
 type FileMatcher = (filePath: string) => boolean
 
 function normalizePath (filePath: string): string {
-  return filePath.replace(/\\/g, '/')
+  return filePath.replaceAll('\\', '/')
 }
 
 function hasYamlExtension (filePath: string): boolean {

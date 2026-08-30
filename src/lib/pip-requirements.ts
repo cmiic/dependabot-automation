@@ -1,6 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 
+import type { ChangedFileComparison, ChangedFileContents } from './compare-changed-files.ts'
+import { compareChangedFiles } from './compare-changed-files.ts'
 import { isPipRequirementsFile, listChangedFiles, pathExistsInGitRevision, runGit } from './pr-changes.ts'
 
 const SIMPLE_REQUIREMENT_PATTERN
@@ -81,7 +83,7 @@ function normalizeMarker (marker?: string): string {
 }
 
 function normalizePath (filePath: string): string {
-  return filePath.replace(/\\/g, '/')
+  return filePath.replaceAll('\\', '/')
 }
 
 function isNamedPipRequirementsFile (filePath: string): boolean {
@@ -171,7 +173,7 @@ export function parseRequirementLine (line: string, lineNumber = 1): ParsedRequi
     return complexLine(content, lineNumber, 'direct-reference')
   }
 
-  const match = content.match(SIMPLE_REQUIREMENT_PATTERN)
+  const match = SIMPLE_REQUIREMENT_PATTERN.exec(content)
   if (!match && content.includes(',')) {
     return complexLine(content, lineNumber, 'range')
   }
@@ -358,23 +360,45 @@ export function classifyChangedPipFiles ({ baseSha, headSha, changedFiles, cwd =
   }
 }
 
-function getErrorMessage (error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error)
-  const normalized = message.replace(/\s+/g, ' ').trim()
-
-  if (normalized.length <= 240) {
-    return normalized
-  }
-
-  return `${normalized.slice(0, 237)}...`
-}
-
 export function findChangedPipRequirementFiles ({ baseSha, headSha, changedFiles, cwd = process.cwd() }: { baseSha: string, headSha: string, changedFiles?: string[], cwd?: string }): { changedFiles: string[] } {
   const allChangedFiles = changedFiles ?? listChangedFiles({ baseSha, headSha, cwd })
 
   return {
     changedFiles: allChangedFiles.filter(isPipRequirementsFile)
   }
+}
+
+function comparePipRequirements ({ file, baseContent, headContent }: ChangedFileContents): ChangedFileComparison {
+  const newDependencies: string[] = []
+  const baseRequirements = extractRequirements(baseContent)
+  const headRequirements = extractRequirements(headContent)
+  const errors = findComplexRequirementLineErrors({ file, baseRequirements, headRequirements })
+
+  const dependencyNames = new Set([
+    ...baseRequirements.dependencies,
+    ...headRequirements.dependencies
+  ])
+
+  for (const dependency of Array.from(dependencyNames).sort()) {
+    const baseKeys = baseRequirements.requirementKeysByName.get(dependency) ?? new Set<string>()
+    const headKeys = headRequirements.requirementKeysByName.get(dependency) ?? new Set<string>()
+
+    if (baseKeys.size === 0) {
+      newDependencies.push(`${file}: ${dependency}`)
+      continue
+    }
+
+    if (headKeys.size === 0) {
+      errors.push(`${file}:dependency-removed:${dependency}`)
+      continue
+    }
+
+    if (!setEquals(baseKeys, headKeys)) {
+      errors.push(`${file}:requirement-variants-changed:${dependency}`)
+    }
+  }
+
+  return { newDependencies, errors }
 }
 
 export function checkChangedPipRequirements ({ baseSha, headSha, changedFiles, cwd = process.cwd() }: { baseSha: string, headSha: string, changedFiles?: string[], cwd?: string }): {
@@ -386,66 +410,9 @@ export function checkChangedPipRequirements ({ baseSha, headSha, changedFiles, c
   errors: string[]
 } {
   const { changedFiles: requirementFiles } = findChangedPipRequirementFiles({ baseSha, headSha, changedFiles, cwd })
-  const newDependencies: string[] = []
-  const errors: string[] = []
   const skippedFiles: string[] = []
 
-  for (const file of requirementFiles) {
-    const fullPath = path.join(cwd, file)
-
-    if (!existsSync(fullPath)) {
-      errors.push(`${file}:missing-in-head`)
-      continue
-    }
-
-    let baseContent: string
-    try {
-      baseContent = runGit(['show', `${baseSha}:${file}`], cwd)
-    } catch (error) {
-      if (!pathExistsInGitRevision({ revision: baseSha, filePath: file, cwd })) {
-        errors.push(`${file}:missing-in-base`)
-      } else {
-        errors.push(`${file}:git-show-failed:${getErrorMessage(error)}`)
-      }
-      continue
-    }
-
-    let headContent: string
-    try {
-      headContent = readFileSync(fullPath, 'utf8')
-    } catch (error) {
-      errors.push(`${file}:read-failed:${getErrorMessage(error)}`)
-      continue
-    }
-
-    const baseRequirements = extractRequirements(baseContent)
-    const headRequirements = extractRequirements(headContent)
-    errors.push(...findComplexRequirementLineErrors({ file, baseRequirements, headRequirements }))
-
-    const dependencyNames = new Set([
-      ...baseRequirements.dependencies,
-      ...headRequirements.dependencies
-    ])
-
-    for (const dependency of Array.from(dependencyNames).sort()) {
-      const baseKeys = baseRequirements.requirementKeysByName.get(dependency) ?? new Set<string>()
-      const headKeys = headRequirements.requirementKeysByName.get(dependency) ?? new Set<string>()
-
-      if (baseKeys.size === 0) {
-        newDependencies.push(`${file}: ${dependency}`)
-        continue
-      }
-
-      if (headKeys.size === 0) {
-        errors.push(`${file}:dependency-removed:${dependency}`)
-        continue
-      }
-
-      if (!setEquals(baseKeys, headKeys)) {
-        errors.push(`${file}:requirement-variants-changed:${dependency}`)
-      }
-    }
-  }
+  const { newDependencies, errors } = compareChangedFiles({ files: requirementFiles, baseSha, cwd, compare: comparePipRequirements })
 
   let status = 'clear'
   if (requirementFiles.length === 0) {

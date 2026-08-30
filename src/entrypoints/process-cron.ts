@@ -24,9 +24,9 @@ function requiredEnv (name: string): string {
 
 const githubOutputPath = requiredEnv('GITHUB_OUTPUT')
 
-function setOutput (name: string, value: unknown): void {
+function setOutput (name: string, value: string | number): void {
   const delimiter = `EOF_${randomUUID()}`
-  appendFileSync(githubOutputPath, `${name}<<${delimiter}\n${String(value ?? '')}\n${delimiter}\n`)
+  appendFileSync(githubOutputPath, `${name}<<${delimiter}\n${String(value)}\n${delimiter}\n`)
 }
 
 function hasApprovalPayload (entry: ApprovalCommentEntry): entry is { comment: IssueComment, payload: ApprovalCommentPayload } {
