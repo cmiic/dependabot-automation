@@ -19,16 +19,3 @@ rules:
       # stack a second delay on top of the one being dogfooded here. Whether to
       # adopt the native setting as well is a policy call, not a defect.
       - dependabot.yml
-
-  ref-version-mismatch:
-    ignore:
-      # These two workflows exist only to dogfood this repo's own actions. They
-      # are pinned to a reviewed commit with a `# main` comment that Dependabot
-      # maintains, and `main` advances with every merge -- so the pin is stale
-      # by construction between Dependabot bumps. Leaving this on fails
-      # unrelated PRs for a reason their author cannot fix (it fired on the
-      # zizmor PR itself, because merging the Trivy gate had moved main).
-      # Neither file references a third-party action, and ci.yml -- which holds
-      # every third-party pin -- keeps this audit enabled.
-      - dependabot-automerge.yml
-      - dependabot-automerge-cron.yml
