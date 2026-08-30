@@ -1,0 +1,21 @@
+# Findings deliberately not acted on. Everything else zizmor reports is a real
+# defect and should be fixed rather than added here.
+rules:
+  artipacked:
+    ignore:
+      # merge/action.yml checks out the PR head and the step right after it runs
+      # `git fetch origin`, which needs the checkout's auth header to reach a
+      # private consumer repository. Dropping the credentials would break the
+      # action for every private repo that uses it.
+      # (zizmor matches these by filename, so this also covers cron/action.yml,
+      # which currently has no checkout at all.)
+      - action.yml
+
+  dependabot-cooldown:
+    ignore:
+      # zizmor wants `cooldown.default-days >= 7`. This repo deliberately does
+      # the waiting elsewhere: the merge/cron actions hold every Dependabot PR
+      # for `quarantine-days` before auto-merging, so a native cooldown would
+      # stack a second delay on top of the one being dogfooded here. Whether to
+      # adopt the native setting as well is a policy call, not a defect.
+      - dependabot.yml

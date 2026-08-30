@@ -2,9 +2,8 @@ name: Dependabot Auto-merge (Cron)
 
 on:
   schedule:
-    # 20 minutes after the dependabot.yml update window (21:10), so a PR
-    # whose quarantine has passed merges the same evening
-    - cron: '30 21 * * *'
+    # Run at 00:49, 08:49, and 16:49 UTC
+    - cron: '49 0,8,16 * * *'
   workflow_dispatch: {}
 
 permissions:
@@ -12,11 +11,11 @@ permissions:
   pull-requests: write
 
 jobs:
-  automerge:
+  check-aged-prs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: cmiic/dependabot-automation/cron@4dec29fb315c0837e6e039fc7e8ce2c04e51042e # main
+      - uses: cmiic/dependabot-automation/cron@6da55a5ce4f786ac1ec1c84b997b713ce28178c2 # v2.1.0
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           quarantine-days: "1"

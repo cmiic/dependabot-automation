@@ -16,6 +16,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -54,6 +56,21 @@ jobs:
           exit-code: "1"
           hide-progress: "true"
 
+      # Static analysis of the workflows and composite actions themselves.
+      # Suppressions live in .github/zizmor.yml, each with a reason.
+      - name: zizmor
+        uses: zizmorcore/zizmor-action@3dc1ecc9bcb9e94e9b2c709687979e1298497054 # v0.6.2
+        with:
+          # Pinned rather than the action's `latest` default, so a new zizmor
+          # release cannot turn this gate red on its own schedule. Dependabot
+          # does not track this input -- bump it by hand.
+          version: 1.29.0
+          # Uploading SARIF to the security tab would need security-events:
+          # write; keep this workflow at contents: read and surface findings as
+          # PR annotations instead. The two options are mutually exclusive.
+          advanced-security: false
+          annotations: true
+
   test:
     name: Test
     needs: lint
@@ -63,6 +80,8 @@ jobs:
       NODE_ENV: test
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -83,6 +102,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
