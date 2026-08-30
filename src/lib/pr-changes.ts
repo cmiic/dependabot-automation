@@ -117,6 +117,13 @@ const ECOSYSTEM_FILE_MATCHERS = new Map<string, FileMatcher>([
   ['docker', isDockerFile]
 ])
 
+// Sonar's S4036 flags resolving "git" through PATH and is accepted rather than
+// fixed. On a GitHub-hosted runner PATH is fixed and unwriteable, which is the
+// only environment this action runs in. Pinning an absolute path is what the
+// rule asks for and would be worse: /usr/bin/git does not exist on macOS with
+// Homebrew git, nor on Windows, so it would break contributors running the
+// suite locally to gain nothing in CI. Anyone who can already write to a
+// directory on a runner's PATH can rewrite this file too.
 export function runGit (args: string[], cwd = process.cwd()): string {
   return execFileSync('git', args, {
     cwd,
