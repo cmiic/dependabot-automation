@@ -3,6 +3,7 @@ import path from 'node:path'
 
 import type { ChangedFileComparison, ChangedFileContents } from './compare-changed-files.ts'
 import { compareChangedFiles } from './compare-changed-files.ts'
+import { compareStrings } from './compare-strings.ts'
 import { isPipRequirementsFile, listChangedFiles, pathExistsInGitRevision, runGit } from './pr-changes.ts'
 
 const SIMPLE_REQUIREMENT_PATTERN
@@ -74,7 +75,7 @@ function normalizeExtras (extras?: string): string {
     .split(',')
     .map(extra => normalizePackageName(extra.trim()))
     .filter(Boolean)
-    .sort()
+    .sort(compareStrings)
     .join(',')
 }
 
@@ -271,7 +272,7 @@ function findComplexRequirementLineErrors ({ file, baseRequirements, headRequire
   const headComplexLines = buildComplexLineMap(headRequirements.complexLines)
   const keys = new Set([...baseComplexLines.keys(), ...headComplexLines.keys()])
 
-  for (const key of Array.from(keys).sort()) {
+  for (const key of Array.from(keys).sort(compareStrings)) {
     const baseEntry = baseComplexLines.get(key)
     const headEntry = headComplexLines.get(key)
     const baseCount = baseEntry?.count ?? 0
@@ -379,7 +380,7 @@ function comparePipRequirements ({ file, baseContent, headContent }: ChangedFile
     ...headRequirements.dependencies
   ])
 
-  for (const dependency of Array.from(dependencyNames).sort()) {
+  for (const dependency of Array.from(dependencyNames).sort(compareStrings)) {
     const baseKeys = baseRequirements.requirementKeysByName.get(dependency) ?? new Set<string>()
     const headKeys = headRequirements.requirementKeysByName.get(dependency) ?? new Set<string>()
 

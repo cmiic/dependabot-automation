@@ -4927,6 +4927,11 @@ var require_toml = __commonJS({
 import { appendFileSync, readFileSync as readFileSync3 } from "node:fs";
 import { randomUUID } from "node:crypto";
 
+// src/lib/compare-strings.ts
+function compareStrings(a, b) {
+  return a.localeCompare(b, "en");
+}
+
 // src/lib/approval-signal.ts
 var APPROVAL_MARKER_PREFIX = "<!-- dependabot-automation:approval ";
 var APPROVAL_CHECKED_AT_SLACK_MS = 5 * 60 * 1e3;
@@ -4946,7 +4951,7 @@ function buildDependencyKey(updatedDependenciesJson) {
   if (!Array.isArray(parsed) || parsed.length === 0 || parsed.some((entry) => !isDependencyUpdate(entry))) {
     return null;
   }
-  const entries = parsed.map((dep) => `${dep.dependencyName}:${dep.prevVersion ?? ""}:${dep.newVersion ?? ""}`).sort();
+  const entries = parsed.map((dep) => `${dep.dependencyName}:${dep.prevVersion ?? ""}:${dep.newVersion ?? ""}`).sort(compareStrings);
   return entries.join(",");
 }
 function getApprovalCheckedAt(payload, comment) {
@@ -5426,7 +5431,7 @@ function compareLockfiles({ file, baseContent, headContent }) {
     const headLockfile = JSON.parse(headContent);
     const baseDependencies = extractDependencies(baseLockfile);
     const headDependencies = extractDependencies(headLockfile);
-    for (const dependency of Array.from(headDependencies).sort()) {
+    for (const dependency of Array.from(headDependencies).sort(compareStrings)) {
       if (!baseDependencies.has(dependency)) {
         newDependencies.push(`${file}: ${dependency}`);
       }
@@ -5475,7 +5480,7 @@ function normalizeExtras(extras) {
   if (!extras) {
     return "";
   }
-  return extras.slice(extras.indexOf("[") + 1, extras.lastIndexOf("]")).split(",").map((extra) => normalizePackageName(extra.trim())).filter(Boolean).sort().join(",");
+  return extras.slice(extras.indexOf("[") + 1, extras.lastIndexOf("]")).split(",").map((extra) => normalizePackageName(extra.trim())).filter(Boolean).sort(compareStrings).join(",");
 }
 function normalizeMarker(marker) {
   return marker ? marker.replace(/\s+/g, " ").trim() : "";
@@ -5617,7 +5622,7 @@ function findComplexRequirementLineErrors({ file, baseRequirements, headRequirem
   const baseComplexLines = buildComplexLineMap(baseRequirements.complexLines);
   const headComplexLines = buildComplexLineMap(headRequirements.complexLines);
   const keys = /* @__PURE__ */ new Set([...baseComplexLines.keys(), ...headComplexLines.keys()]);
-  for (const key of Array.from(keys).sort()) {
+  for (const key of Array.from(keys).sort(compareStrings)) {
     const baseEntry = baseComplexLines.get(key);
     const headEntry = headComplexLines.get(key);
     const baseCount = baseEntry?.count ?? 0;
@@ -5700,7 +5705,7 @@ function comparePipRequirements({ file, baseContent, headContent }) {
     ...baseRequirements.dependencies,
     ...headRequirements.dependencies
   ]);
-  for (const dependency of Array.from(dependencyNames).sort()) {
+  for (const dependency of Array.from(dependencyNames).sort(compareStrings)) {
     const baseKeys = baseRequirements.requirementKeysByName.get(dependency) ?? /* @__PURE__ */ new Set();
     const headKeys = headRequirements.requirementKeysByName.get(dependency) ?? /* @__PURE__ */ new Set();
     if (baseKeys.size === 0) {
@@ -5778,7 +5783,7 @@ function compareUvLockfiles({ file, baseContent, headContent }) {
     const headLockfile = parseUvLock(headContent);
     const baseDependencies = extractDependencies2(baseLockfile);
     const headDependencies = extractDependencies2(headLockfile);
-    for (const dependency of Array.from(headDependencies).sort()) {
+    for (const dependency of Array.from(headDependencies).sort(compareStrings)) {
       if (!baseDependencies.has(dependency)) {
         newDependencies.push(`${file}: ${dependency}`);
       }

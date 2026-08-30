@@ -2,6 +2,7 @@ import path from 'node:path'
 
 import type { ChangedFileComparison, ChangedFileContents } from './compare-changed-files.ts'
 import { compareChangedFiles, getErrorMessage } from './compare-changed-files.ts'
+import { compareStrings } from './compare-strings.ts'
 import { listChangedFiles } from './pr-changes.ts'
 
 const LOCKFILE_BASENAMES = new Set(['package-lock.json', 'npm-shrinkwrap.json'])
@@ -79,7 +80,7 @@ function compareLockfiles ({ file, baseContent, headContent }: ChangedFileConten
     const baseDependencies = extractDependencies(baseLockfile)
     const headDependencies = extractDependencies(headLockfile)
 
-    for (const dependency of Array.from(headDependencies).sort()) {
+    for (const dependency of Array.from(headDependencies).sort(compareStrings)) {
       if (!baseDependencies.has(dependency)) {
         newDependencies.push(`${file}: ${dependency}`)
       }
