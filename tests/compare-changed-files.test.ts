@@ -21,7 +21,7 @@ function git (cwd: string, args: string[]): string {
  * version and the working tree another. gc.auto is off so the objects stay
  * loose -- the git-show-failed test below reaches into them by path.
  */
-function createFixture (fileNames = ['package-lock.json']): { repoDir: string, baseSha: string, filePath: string } {
+function createFixture (fileNames: [string, ...string[]] = ['package-lock.json']): { repoDir: string, baseSha: string, filePath: string } {
   const repoDir = mkdtempSync(path.join(tmpdir(), 'dependabot-automation-compare-'))
 
   git(repoDir, ['init'])
@@ -44,7 +44,7 @@ function createFixture (fileNames = ['package-lock.json']): { repoDir: string, b
   git(repoDir, ['add', '-A'])
   git(repoDir, ['commit', '-m', 'head'])
 
-  return { repoDir, baseSha, filePath: path.join(repoDir, fileNames[0] as string) }
+  return { repoDir, baseSha, filePath: path.join(repoDir, fileNames[0]) }
 }
 
 /** Records what it was handed, so a test can assert the contents reached it. */
@@ -152,7 +152,11 @@ test('compareChangedFiles distinguishes a git failure from a file added in the p
     // file does not look added -- but git show cannot produce the content.
     // This is the one way to reach git-show-failed rather than missing-in-base.
     const blob = git(repoDir, ['rev-parse', `${baseSha}:package-lock.json`])
-    const objectPath = path.join(repoDir, '.git', 'objects', blob.slice(0, 2), blob.slice(2))
+    // Ask git where the object store is rather than assuming .git/objects: an
+    // alternate object directory, an alternates file or a worktree all move it.
+    // The answer may be relative to the repository, so resolve it from there.
+    const objectsDir = path.resolve(repoDir, git(repoDir, ['rev-parse', '--git-path', 'objects']))
+    const objectPath = path.join(objectsDir, blob.slice(0, 2), blob.slice(2))
 
     // If the object were packed instead of loose, removing this path would be a
     // no-op and the test would pass without ever reaching the branch.
@@ -168,8 +172,8 @@ test('compareChangedFiles distinguishes a git failure from a file added in the p
 
     assert.equal(result.errors.length, 1)
     // Only the prefix is pinned: the git text after it varies by version and platform.
-    assert.match(result.errors[0] as string, /^package-lock\.json:git-show-failed:.+/)
-    assert.doesNotMatch(result.errors[0] as string, /missing-in-base/)
+    assert.match(result.errors[0], /^package-lock\.json:git-show-failed:.+/)
+    assert.doesNotMatch(result.errors[0], /missing-in-base/)
   } finally {
     rmSync(repoDir, { recursive: true, force: true })
   }
@@ -192,7 +196,7 @@ test('compareChangedFiles reports a head file it cannot read', () => {
     })
 
     assert.equal(result.errors.length, 1)
-    assert.match(result.errors[0] as string, /^package-lock\.json:read-failed:.+/)
+    assert.match(result.errors[0], /^package-lock\.json:read-failed:.+/)
   } finally {
     rmSync(repoDir, { recursive: true, force: true })
   }
