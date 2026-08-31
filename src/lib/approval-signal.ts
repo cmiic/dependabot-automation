@@ -1,3 +1,5 @@
+import { compareStrings } from './compare-strings.ts'
+
 const APPROVAL_MARKER_PREFIX = '<!-- dependabot-automation:approval '
 const APPROVAL_CHECKED_AT_SLACK_MS = 5 * 60 * 1000
 
@@ -65,7 +67,7 @@ export function buildDependencyKey (updatedDependenciesJson?: string | null): st
 
   const entries = parsed
     .map(dep => `${dep.dependencyName}:${dep.prevVersion ?? ''}:${dep.newVersion ?? ''}`)
-    .sort()
+    .sort(compareStrings)
 
   return entries.join(',')
 }

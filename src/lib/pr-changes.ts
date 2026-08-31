@@ -117,6 +117,14 @@ const ECOSYSTEM_FILE_MATCHERS = new Map<string, FileMatcher>([
   ['docker', isDockerFile]
 ])
 
+// Sonar's S4036 flags resolving "git" through PATH and is accepted rather than
+// fixed. What the rule asks for is an absolute path, and there is no portable
+// one: /usr/bin/git is wrong on macOS with a Homebrew git and does not exist on
+// Windows, so pinning one would break contributors running the suite locally.
+// On a GitHub-hosted runner PATH is fixed and unwriteable. A self-hosted runner
+// is the consumer's own environment and its PATH is theirs to control -- but an
+// attacker who can write to a directory on it can equally rewrite this checkout,
+// so an absolute path here would not be what stops them.
 export function runGit (args: string[], cwd = process.cwd()): string {
   return execFileSync('git', args, {
     cwd,

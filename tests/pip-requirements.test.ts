@@ -47,6 +47,98 @@ test('parseRequirementLine canonicalizes package names and simple specifier meta
   })
 })
 
+test('parseRequirementLine accepts every PEP 440 comparison operator', () => {
+  const operators = ['===', '==', '~=', '!=', '<=', '>=', '<', '>']
+
+  for (const operator of operators) {
+    assert.deepEqual(
+      parseRequirementLine(`pkg${operator}1.0`),
+      {
+        type: 'requirement',
+        name: 'pkg',
+        operator,
+        version: '1.0',
+        extras: '',
+        marker: '',
+        key: `pkg||${operator}|`,
+        lineNumber: 1
+      },
+      `operator ${operator} did not round-trip`
+    )
+  }
+})
+
+test('parseRequirementLine keeps the longest operator when they share a prefix', () => {
+  // The alternation is ordered so that === wins over ==, and <= over <. A
+  // trailing = beyond a valid operator belongs to the version, not the
+  // operator -- pinned here because the alternation was rewritten as
+  // character classes to cut its complexity.
+  assert.partialDeepStrictEqual(parseRequirementLine('pkg====1.0'), {
+    type: 'requirement',
+    operator: '===',
+    version: '=1.0'
+  })
+
+  assert.partialDeepStrictEqual(parseRequirementLine('pkg<=1.0'), {
+    type: 'requirement',
+    operator: '<=',
+    version: '1.0'
+  })
+
+  assert.partialDeepStrictEqual(parseRequirementLine('pkg<1.0'), {
+    type: 'requirement',
+    operator: '<',
+    version: '1.0'
+  })
+})
+
+test('parseRequirementLine rejects operator-shaped punctuation that is not an operator', () => {
+  for (const line of ['pkg=1.0', 'pkg=<1.0', 'pkg~1.0']) {
+    assert.equal(parseRequirementLine(line).type, 'complex', `${line} should not parse as a requirement`)
+  }
+})
+
+test('parseRequirementLine handles the environment marker split at its edges', () => {
+  // The marker is taken off before the pattern runs, so these edges are now
+  // explicit code rather than a regex tail. A bare trailing semicolon matched
+  // nothing in the old pattern -- its marker tail required at least one
+  // character -- and must keep falling through to unparseable.
+  assert.equal(parseRequirementLine('pkg==1.0;').type, 'complex')
+
+  assert.partialDeepStrictEqual(parseRequirementLine('pkg==1.0 ; python_version >= "3.11"'), {
+    type: 'requirement',
+    version: '1.0',
+    marker: 'python_version >= "3.11"'
+  })
+
+  // Only the first semicolon splits; the rest belongs to the marker.
+  assert.partialDeepStrictEqual(parseRequirementLine('pkg==1.0;a;b'), {
+    type: 'requirement',
+    version: '1.0',
+    marker: 'a;b'
+  })
+
+  assert.partialDeepStrictEqual(parseRequirementLine('pkg==1.0'), {
+    type: 'requirement',
+    version: '1.0',
+    marker: ''
+  })
+})
+
+test('parseRequirementLine reads pkg<>1.0 as < with a version of >1.0', () => {
+  // Not a valid PEP 440 operator, and the pattern has always split it this
+  // way: < matches, and the remaining > is swallowed by the version, which
+  // excludes only , ; whitespace and backslash. Pinned as pre-existing
+  // behaviour, unchanged by the alternation rewrite -- both revisions of the
+  // pattern agree on it. Harmless in practice: base and head are parsed by the
+  // same code, so an odd line yields the same odd key on both sides.
+  assert.partialDeepStrictEqual(parseRequirementLine('pkg<>1.0'), {
+    type: 'requirement',
+    operator: '<',
+    version: '>1.0'
+  })
+})
+
 test('extractRequirements ignores comments and blank lines', () => {
   const requirements = extractRequirements(`
 # generated

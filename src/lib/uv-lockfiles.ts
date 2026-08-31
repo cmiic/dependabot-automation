@@ -4,6 +4,7 @@ import toml from 'toml'
 
 import type { ChangedFileComparison, ChangedFileContents } from './compare-changed-files.ts'
 import { compareChangedFiles, getErrorMessage } from './compare-changed-files.ts'
+import { compareStrings } from './compare-strings.ts'
 import { listChangedFiles } from './pr-changes.ts'
 
 const UV_LOCKFILE_BASENAME = 'uv.lock'
@@ -62,7 +63,7 @@ function compareUvLockfiles ({ file, baseContent, headContent }: ChangedFileCont
     const baseDependencies = extractDependencies(baseLockfile)
     const headDependencies = extractDependencies(headLockfile)
 
-    for (const dependency of Array.from(headDependencies).sort()) {
+    for (const dependency of Array.from(headDependencies).sort(compareStrings)) {
       if (!baseDependencies.has(dependency)) {
         newDependencies.push(`${file}: ${dependency}`)
       }
