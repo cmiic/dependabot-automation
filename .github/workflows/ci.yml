@@ -59,7 +59,7 @@ jobs:
       # Static analysis of the workflows and composite actions themselves.
       # Suppressions live in .github/zizmor.yml, each with a reason.
       - name: zizmor
-        uses: zizmorcore/zizmor-action@70fb788f84895a7701f5643d103d587e460b5c99 # v0.6.3
+        uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4
         with:
           # Pinned rather than the action's `latest` default, so a new zizmor
           # release cannot turn this gate red on its own schedule. Dependabot
