@@ -5233,12 +5233,7 @@ var NPM_AND_YARN_BASENAMES = /* @__PURE__ */ new Set([
   "yarn.lock",
   "pnpm-lock.yaml"
 ]);
-var DOCKER_COMPOSE_BASENAMES = /* @__PURE__ */ new Set([
-  "docker-compose.yml",
-  "docker-compose.yaml",
-  "compose.yml",
-  "compose.yaml"
-]);
+var DOCKER_COMPOSE_FILENAME = /^(?:docker-)?compose(?:-\w+)?(?:\.[\w-]+)?\.ya?ml$/i;
 function normalizePath(filePath) {
   return filePath.replaceAll("\\", "/");
 }
@@ -5253,7 +5248,7 @@ function isDockerfile(filePath) {
   return basename === "Dockerfile" || basename.startsWith("Dockerfile.") || basename.endsWith(".Dockerfile") || basename === "Containerfile" || basename.startsWith("Containerfile.") || basename.endsWith(".Containerfile");
 }
 function isDockerComposeFile(filePath) {
-  return DOCKER_COMPOSE_BASENAMES.has(path.basename(filePath));
+  return DOCKER_COMPOSE_FILENAME.test(path.basename(filePath));
 }
 function isNpmAndYarnFile(filePath) {
   return NPM_AND_YARN_BASENAMES.has(path.basename(filePath));
@@ -5302,7 +5297,8 @@ var ECOSYSTEM_FILE_MATCHERS = /* @__PURE__ */ new Map([
   ["pip", isPipRequirementsFile],
   ["github_actions", isGitHubActionsFile],
   ["devcontainers", isDevcontainerFile],
-  ["docker", isDockerFile]
+  ["docker", isDockerFile],
+  ["docker_compose", isDockerComposeFile]
 ]);
 function runGit(args, cwd = process.cwd()) {
   return execFileSync("git", args, {
