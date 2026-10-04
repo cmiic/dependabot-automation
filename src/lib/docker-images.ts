@@ -80,7 +80,10 @@ export function parseImageReference (token: string): ImageReference | null {
 }
 
 export function formatImageReference ({ name, tag, digest }: ImageReference): string {
-  return `${name}${tag === null ? '' : `:${tag}`}${digest === null ? '' : `@${digest}`}`
+  const tagPart = tag === null ? '' : `:${tag}`
+  const digestPart = digest === null ? '' : `@${digest}`
+
+  return `${name}${tagPart}${digestPart}`
 }
 
 function parseImageReferenceLine (line: string): ImageReferenceLine | null {

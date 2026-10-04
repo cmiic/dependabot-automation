@@ -5241,7 +5241,9 @@ function parseImageReference(token2) {
   return isImageName(name) ? { name, tag, digest } : null;
 }
 function formatImageReference({ name, tag, digest }) {
-  return `${name}${tag === null ? "" : `:${tag}`}${digest === null ? "" : `@${digest}`}`;
+  const tagPart = tag === null ? "" : `:${tag}`;
+  const digestPart = digest === null ? "" : `@${digest}`;
+  return `${name}${tagPart}${digestPart}`;
 }
 function parseImageReferenceLine(line) {
   const groups = (FROM_LINE.exec(line) ?? COMPOSE_IMAGE_LINE.exec(line))?.groups;
