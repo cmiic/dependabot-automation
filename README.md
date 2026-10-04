@@ -12,7 +12,7 @@ Responsibilities are split so the PR action owns the semver/lockfile/file-surfac
 By default the PR action:
 
 - only acts on `dependabot[bot]` pull requests
-- allows `github_actions`, `npm_and_yarn`, `devcontainers`, `docker`, `uv`, and `pip`
+- allows `github_actions`, `npm_and_yarn`, `devcontainers`, `docker`, `docker_compose`, `uv`, and `pip`
 - allows only semver `patch` and `minor` updates
 - requires Dependabot commit verification unless you explicitly opt out
 - rejects pull requests that modify files outside the expected dependency-update surface for the detected ecosystem
@@ -25,6 +25,10 @@ By default the PR action:
 - checks changed pip requirement files for newly introduced dependencies on `pip` only when the parser can compare them safely
 - treats dependency removals, requirement variant changes, added or removed complex installable lines, new or deleted requirement files, unreadable files, and ambiguous text files under `requirements/` whose contents are not recognizable as requirements syntax or contain unparseable lines as manual review
 - treats `pip` support as requirements/constraints-file-only; changes to `pyproject.toml`, `setup.py`, `setup.cfg`, `Pipfile`, `Pipfile.lock`, `poetry.lock`, or other Python packaging files require manual review
+- compares each changed Dockerfile and compose file line by line on `docker` and `docker_compose`: every changed line must be an image reference (a `FROM` line or a compose `image:` key) in which only the tag and digest changed; a changed registry or repository, any other edited line, a different line count, or a reference built from a variable is manual review
+- requires every changed image reference on `docker` and `docker_compose` to be pinned to a digest (`image:tag@sha256:…`), since a tag can be moved to different content at any time
+- auto-merges `docker` and `docker_compose` updates only for image repositories listed in `trusted-images`, which is empty by default
+- never auto-merges a `docker` or `docker_compose` update that keeps the tag and changes only the digest (reason `digest-only-update`): new content under an unchanged tag is what a re-push produces, legitimate or not. Dependabot labels the re-push of a full version tag such as `1.5.4` a semver `patch` update, so the `patch`/`minor` rule alone would let it through; updates behind a floating tag such as `latest` get no update type at all and are already rejected by that rule
 - upserts a bot-authored approval comment tied to the current PR head SHA
 - preserves the first evaluation timestamp for the current head SHA, so quarantine is not reset by re-runs of the action
 - carries forward the quarantine timestamp across rebases when the dependency versions are unchanged
@@ -165,7 +169,10 @@ Shared inputs:
 
 `merge`-only inputs:
 
-- `allowed-ecosystems`: default `github_actions,npm_and_yarn,devcontainers,docker,uv,pip`
+- `allowed-ecosystems`: default `github_actions,npm_and_yarn,devcontainers,docker,docker_compose,uv,pip`
+- `trusted-images`: default empty
+  Comma-separated image repositories whose `docker` and `docker_compose` updates may auto-merge. An entry is a repository such as `docker.io/library/debian`, or a prefix such as `ghcr.io/my-org/*` that covers every repository below it; `*` trusts all images. Names are compared the way Docker reads them, so `debian`, `docker.io/debian` and `index.docker.io/library/debian` are the same repository. An entry with a tag, a digest or a `*` anywhere else rejects every image update with reason `invalid-trusted-images`.
+  Behaviour change: before this input existed, `docker` updates auto-merged on file names alone. With the empty default, no image update auto-merges until you list the repositories you trust; a wrapper that follows the moving `v2` tag picks this up with the release that introduces it. Leave out images you want to review by hand, for example ones whose upstream build pipes a downloaded script into a shell.
 - `skip-commit-verification`: default `false`
   Setting this to `true` weakens the branch-tampering defense and should be treated as an explicit trust decision.
   Warning: Setting `skip-commit-verification: true` allows tampered PRs to be merged if an attacker hides malicious code inside expected files (e.g., modifying `package.json` scripts or adding malicious steps to `.github/workflows/*.yml`).

@@ -12,7 +12,7 @@ inputs:
   allowed-ecosystems:
     description: Comma-separated package ecosystems allowed for auto-merge. Use the values returned by dependabot/fetch-metadata (e.g. github_actions, not the dependabot.yml form github-actions).
     required: false
-    default: github_actions,npm_and_yarn,devcontainers,docker,uv,pip
+    default: github_actions,npm_and_yarn,devcontainers,docker,docker_compose,uv,pip
   skip-commit-verification:
     description: Forwarded to dependabot/fetch-metadata. Set to true only if you intentionally accept unsigned or non-Dependabot commits on bot PRs.
     required: false
@@ -21,6 +21,10 @@ inputs:
     description: Comma-separated GitHub org/user names trusted for github_actions auto-merge. Use * to trust all owners.
     required: false
     default: actions,github,dependabot
+  trusted-images:
+    description: Comma-separated image repositories trusted for docker and docker_compose auto-merge, e.g. docker.io/library/debian, or ghcr.io/my-org/* for every repository below that prefix. Use * to trust all images. Empty by default, so no image update auto-merges until repositories are listed.
+    required: false
+    default: ""
 
 outputs:
   candidate:
@@ -128,6 +132,7 @@ runs:
         METADATA_DEPENDENCY_NAMES: ${{ steps.metadata.outputs.dependency-names }}
         METADATA_UPDATED_DEPENDENCIES_JSON: ${{ steps.metadata.outputs.updated-dependencies-json }}
         TRUSTED_ACTION_OWNERS: ${{ inputs.trusted-action-owners }}
+        TRUSTED_IMAGES: ${{ inputs.trusted-images }}
       run: node "$GITHUB_ACTION_PATH/../dist/evaluate-pull-request.js"
 
     - id: result

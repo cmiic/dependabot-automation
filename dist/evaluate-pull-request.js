@@ -5045,6 +5045,346 @@ function parseApprovalComment(body) {
   }
 }
 
+// src/lib/compare-changed-files.ts
+import { existsSync, readFileSync } from "node:fs";
+import path2 from "node:path";
+
+// src/lib/pr-changes.ts
+import { execFileSync } from "node:child_process";
+import path from "node:path";
+var NPM_AND_YARN_BASENAMES = /* @__PURE__ */ new Set([
+  "package.json",
+  "package-lock.json",
+  "npm-shrinkwrap.json",
+  "yarn.lock",
+  "pnpm-lock.yaml"
+]);
+var DOCKER_COMPOSE_FILENAME = /^(?:docker-)?compose(?:-\w+)?(?:\.[\w-]+)?\.ya?ml$/i;
+function normalizePath(filePath) {
+  return filePath.replaceAll("\\", "/");
+}
+function hasYamlExtension(filePath) {
+  return /\.ya?ml$/i.test(filePath);
+}
+function hasJsonExtension(filePath) {
+  return /\.jsonc?$/i.test(filePath);
+}
+function isDockerfile(filePath) {
+  const basename = path.basename(filePath);
+  return basename === "Dockerfile" || basename.startsWith("Dockerfile.") || basename.endsWith(".Dockerfile") || basename === "Containerfile" || basename.startsWith("Containerfile.") || basename.endsWith(".Containerfile");
+}
+function isDockerComposeFile(filePath) {
+  return DOCKER_COMPOSE_FILENAME.test(path.basename(filePath));
+}
+function isNpmAndYarnFile(filePath) {
+  return NPM_AND_YARN_BASENAMES.has(path.basename(filePath));
+}
+function isUvFile(filePath) {
+  const basename = path.basename(normalizePath(filePath));
+  return basename === "pyproject.toml" || basename === "uv.lock";
+}
+function isPipRequirementsFile(filePath) {
+  const normalized = normalizePath(filePath);
+  const basename = path.basename(normalized).toLowerCase();
+  if (!/\.(txt|in)$/i.test(basename)) {
+    return false;
+  }
+  if (normalized.startsWith("requirements/") || normalized.includes("/requirements/")) {
+    return true;
+  }
+  return /^requirements.*\.(txt|in)$/i.test(basename) || /^.+-requirements\.(txt|in)$/i.test(basename) || /^constraints.*\.(txt|in)$/i.test(basename) || /^.+-constraints\.(txt|in)$/i.test(basename);
+}
+function isGitHubActionsFile(filePath) {
+  const normalized = normalizePath(filePath);
+  const basename = path.basename(normalized);
+  if (basename === "action.yml" || basename === "action.yaml") {
+    return true;
+  }
+  return normalized.startsWith(".github/workflows/") && hasYamlExtension(normalized);
+}
+function isDevcontainerFile(filePath) {
+  const normalized = normalizePath(filePath);
+  const basename = path.basename(normalized);
+  const inDevcontainerDir = normalized.startsWith(".devcontainer/") || normalized.includes("/.devcontainer/");
+  if (basename === ".devcontainer.json") {
+    return true;
+  }
+  if (basename === "devcontainer.json") {
+    return true;
+  }
+  return inDevcontainerDir && (hasJsonExtension(normalized) || hasYamlExtension(normalized) || isDockerfile(normalized));
+}
+function isDockerFile(filePath) {
+  return isDockerfile(filePath) || isDockerComposeFile(filePath);
+}
+var ECOSYSTEM_FILE_MATCHERS = /* @__PURE__ */ new Map([
+  ["npm_and_yarn", isNpmAndYarnFile],
+  ["uv", isUvFile],
+  ["pip", isPipRequirementsFile],
+  ["github_actions", isGitHubActionsFile],
+  ["devcontainers", isDevcontainerFile],
+  ["docker", isDockerFile],
+  ["docker_compose", isDockerComposeFile]
+]);
+function runGit(args, cwd = process.cwd()) {
+  return execFileSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+}
+function pathExistsInGitRevision({ revision, filePath, cwd = process.cwd() }) {
+  const output = runGit(["ls-tree", "-r", "--name-only", revision, "--", filePath], cwd);
+  return output.split("\n").map((line) => normalizePath(line.trim())).includes(normalizePath(filePath));
+}
+function listChangedFiles({ baseSha, headSha, cwd = process.cwd() }) {
+  const output = runGit(["diff", "--name-only", baseSha, headSha], cwd);
+  return output.split("\n").map((line) => normalizePath(line.trim())).filter(Boolean);
+}
+function extractActionOwners(dependencyNames) {
+  if (!dependencyNames) {
+    return /* @__PURE__ */ new Set();
+  }
+  return new Set(
+    dependencyNames.split(",").map((name) => name.trim()).filter(Boolean).map((name) => name.split("/")[0]).filter(Boolean)
+  );
+}
+function findUnexpectedFiles({ packageEcosystem: packageEcosystem2, changedFiles: changedFiles2 }) {
+  const matcher = ECOSYSTEM_FILE_MATCHERS.get(packageEcosystem2);
+  if (!matcher) {
+    return [...changedFiles2];
+  }
+  return changedFiles2.filter((filePath) => !matcher(filePath));
+}
+
+// src/lib/compare-changed-files.ts
+var MAX_ERROR_MESSAGE_LENGTH = 240;
+var TRUNCATION_SUFFIX = "...";
+function getErrorMessage(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  const normalized = message.replace(/\s+/g, " ").trim();
+  if (normalized.length <= MAX_ERROR_MESSAGE_LENGTH) {
+    return normalized;
+  }
+  return `${normalized.slice(0, MAX_ERROR_MESSAGE_LENGTH - TRUNCATION_SUFFIX.length)}${TRUNCATION_SUFFIX}`;
+}
+function readChangedFile({ file, baseSha, cwd }) {
+  const fullPath = path2.join(cwd, file);
+  if (!existsSync(fullPath)) {
+    return { error: `${file}:missing-in-head` };
+  }
+  let baseContent;
+  try {
+    baseContent = runGit(["show", `${baseSha}:${file}`], cwd);
+  } catch (error) {
+    if (!pathExistsInGitRevision({ revision: baseSha, filePath: file, cwd })) {
+      return { error: `${file}:missing-in-base` };
+    }
+    return { error: `${file}:git-show-failed:${getErrorMessage(error)}` };
+  }
+  let headContent;
+  try {
+    headContent = readFileSync(fullPath, "utf8");
+  } catch (error) {
+    return { error: `${file}:read-failed:${getErrorMessage(error)}` };
+  }
+  return { file, baseContent, headContent };
+}
+function compareChangedFiles({ files, baseSha, cwd, compare }) {
+  const newDependencies = [];
+  const errors = [];
+  for (const file of files) {
+    const contents = readChangedFile({ file, baseSha, cwd });
+    if ("error" in contents) {
+      errors.push(contents.error);
+      continue;
+    }
+    const comparison = compare(contents);
+    newDependencies.push(...comparison.newDependencies);
+    errors.push(...comparison.errors);
+  }
+  return { newDependencies, errors };
+}
+
+// src/lib/docker-images.ts
+var DIGEST = /^sha256:[0-9a-f]{64}$/;
+var TAG = /^\w[\w.-]{0,127}$/;
+var FIRST_NAME_COMPONENT = /^[A-Za-z0-9]+(?:[._-]+[A-Za-z0-9]+)*(?::\d+)?$/;
+var NAME_COMPONENT = /^[a-z0-9]+(?:[._-]+[a-z0-9]+)*$/;
+var FROM_LINE = /^(?<before>\s*FROM\s+(?:--platform=\S+\s+)?)(?<image>\S+)(?<after>(?:\s+AS\s+\S+)?\s*)$/i;
+var COMPOSE_IMAGE_LINE = /^(?<before>\s*image:\s*(?<quote>["']?))(?<image>[^\s"'#]+)(?<after>\k<quote>\s*(?:#[^\n]*)?)$/;
+var DOCKER_HUB = "docker.io";
+function isImageName(name) {
+  const [first, ...rest] = name.split("/");
+  return FIRST_NAME_COMPONENT.test(first) && rest.every((component) => NAME_COMPONENT.test(component));
+}
+function parseImageReference(token2) {
+  let name = token2;
+  let tag = null;
+  let digest = null;
+  const at = name.indexOf("@");
+  if (at !== -1) {
+    digest = name.slice(at + 1);
+    name = name.slice(0, at);
+    if (!DIGEST.test(digest)) {
+      return null;
+    }
+  }
+  const colon = name.lastIndexOf(":");
+  if (colon > name.lastIndexOf("/")) {
+    tag = name.slice(colon + 1);
+    name = name.slice(0, colon);
+    if (!TAG.test(tag)) {
+      return null;
+    }
+  }
+  return isImageName(name) ? { name, tag, digest } : null;
+}
+function formatImageReference({ name, tag, digest }) {
+  return `${name}${tag === null ? "" : `:${tag}`}${digest === null ? "" : `@${digest}`}`;
+}
+function parseImageReferenceLine(line) {
+  const groups = (FROM_LINE.exec(line) ?? COMPOSE_IMAGE_LINE.exec(line))?.groups;
+  if (!groups) {
+    return null;
+  }
+  const reference = parseImageReference(groups.image);
+  return reference ? { reference, before: groups.before, after: groups.after } : null;
+}
+function splitImageName(name) {
+  const components = name.split("/");
+  const first = components[0];
+  const hasDomain = components.length > 1 && (first.includes(".") || first.includes(":") || first === "localhost" || first !== first.toLowerCase());
+  if (!hasDomain) {
+    return { domain: DOCKER_HUB, path: components };
+  }
+  const domain = first.toLowerCase();
+  return { domain: domain === "index.docker.io" ? DOCKER_HUB : domain, path: components.slice(1) };
+}
+function normalizeImageName(name) {
+  const { domain, path: path6 } = splitImageName(name);
+  if (domain === DOCKER_HUB && path6.length === 1) {
+    path6.unshift("library");
+  }
+  return [domain, ...path6].join("/");
+}
+function isRepositoryName(value) {
+  const reference = parseImageReference(value);
+  return reference !== null && reference.tag === null && reference.digest === null;
+}
+function parseTrustedImages(entries) {
+  const trusted = { all: false, repositories: /* @__PURE__ */ new Set(), prefixes: [], invalidEntries: [] };
+  for (const entry of entries) {
+    if (entry === "*") {
+      trusted.all = true;
+    } else if (entry.endsWith("/*")) {
+      const probe = `${entry.slice(0, -2)}/x`;
+      if (isRepositoryName(probe)) {
+        const { domain, path: path6 } = splitImageName(probe);
+        trusted.prefixes.push(`${[domain, ...path6.slice(0, -1)].join("/")}/`);
+      } else {
+        trusted.invalidEntries.push(entry);
+      }
+    } else if (isRepositoryName(entry)) {
+      trusted.repositories.add(normalizeImageName(entry));
+    } else {
+      trusted.invalidEntries.push(entry);
+    }
+  }
+  return trusted;
+}
+function isTrustedImage(name, trusted) {
+  if (trusted.all) {
+    return true;
+  }
+  const normalized = normalizeImageName(name);
+  return trusted.repositories.has(normalized) || trusted.prefixes.some((prefix) => normalized.startsWith(prefix));
+}
+function compareImageReferenceFile({ file, baseContent, headContent }) {
+  const baseLines = baseContent.split("\n");
+  const headLines = headContent.split("\n");
+  if (baseLines.length !== headLines.length) {
+    return { changes: [], violations: [`${file}:line-count-changed`] };
+  }
+  const changes = [];
+  const violations = [];
+  for (const [index, baseLine] of baseLines.entries()) {
+    const headLine = headLines[index];
+    if (baseLine === headLine) {
+      continue;
+    }
+    const location = `${file}:${index + 1}`;
+    const from = parseImageReferenceLine(baseLine);
+    const to = parseImageReferenceLine(headLine);
+    if (!from || !to) {
+      violations.push(`${location}:not-an-image-reference`);
+    } else if (from.before !== to.before || from.after !== to.after) {
+      violations.push(`${location}:changed-outside-image-reference`);
+    } else if (from.reference.name === to.reference.name) {
+      changes.push({ file, line: index + 1, from: from.reference, to: to.reference });
+    } else {
+      violations.push(`${location}:image-name-changed:${from.reference.name}->${to.reference.name}`);
+    }
+  }
+  return { changes, violations };
+}
+function imageCheckStatus({ errors, invalidTrustedImages, violations, unpinnedImages, digestOnlyUpdates, changes, untrustedImages }) {
+  if (errors.length > 0) {
+    return "error";
+  }
+  if (invalidTrustedImages.length > 0) {
+    return "invalid-trusted-images";
+  }
+  if (violations.length > 0) {
+    return "unexpected-image-change";
+  }
+  if (unpinnedImages.length > 0) {
+    return "unpinned-image";
+  }
+  if (digestOnlyUpdates.length > 0) {
+    return "digest-only-update";
+  }
+  if (changes.length === 0) {
+    return "no-image-changes";
+  }
+  if (untrustedImages.length > 0) {
+    return "untrusted-image";
+  }
+  return "clear";
+}
+function checkChangedImageReferences({ baseSha, changedFiles: changedFiles2, trustedImages, cwd = process.cwd() }) {
+  const trusted = parseTrustedImages(trustedImages);
+  const changes = [];
+  const violations = [];
+  const errors = [];
+  for (const file of changedFiles2) {
+    const contents = readChangedFile({ file, baseSha, cwd });
+    if ("error" in contents) {
+      errors.push(contents.error);
+      continue;
+    }
+    const comparison = compareImageReferenceFile(contents);
+    changes.push(...comparison.changes);
+    violations.push(...comparison.violations);
+  }
+  const unpinnedImages = changes.filter((change) => change.to.digest === null).map((change) => `${change.file}:${change.line}: ${formatImageReference(change.to)}`);
+  const digestOnlyUpdates = changes.filter((change) => change.from.tag === change.to.tag).map((change) => `${change.file}:${change.line}: ${formatImageReference(change.to)}`);
+  const untrustedImages = [...new Set(
+    changes.filter((change) => !isTrustedImage(change.to.name, trusted)).map((change) => normalizeImageName(change.to.name))
+  )].sort(compareStrings);
+  const result = {
+    changes,
+    errors,
+    invalidTrustedImages: trusted.invalidEntries,
+    violations,
+    unpinnedImages,
+    digestOnlyUpdates,
+    untrustedImages
+  };
+  const status = imageCheckStatus(result);
+  return { ok: status === "clear", status, ...result };
+}
+
 // src/lib/github.ts
 var API_VERSION = "2022-11-28";
 var USER_AGENT = "cmiic-dependabot-automation";
@@ -5218,169 +5558,6 @@ var GitHubClient = class {
 
 // src/lib/lockfiles.ts
 import path3 from "node:path";
-
-// src/lib/compare-changed-files.ts
-import { existsSync, readFileSync } from "node:fs";
-import path2 from "node:path";
-
-// src/lib/pr-changes.ts
-import { execFileSync } from "node:child_process";
-import path from "node:path";
-var NPM_AND_YARN_BASENAMES = /* @__PURE__ */ new Set([
-  "package.json",
-  "package-lock.json",
-  "npm-shrinkwrap.json",
-  "yarn.lock",
-  "pnpm-lock.yaml"
-]);
-var DOCKER_COMPOSE_FILENAME = /^(?:docker-)?compose(?:-\w+)?(?:\.[\w-]+)?\.ya?ml$/i;
-function normalizePath(filePath) {
-  return filePath.replaceAll("\\", "/");
-}
-function hasYamlExtension(filePath) {
-  return /\.ya?ml$/i.test(filePath);
-}
-function hasJsonExtension(filePath) {
-  return /\.jsonc?$/i.test(filePath);
-}
-function isDockerfile(filePath) {
-  const basename = path.basename(filePath);
-  return basename === "Dockerfile" || basename.startsWith("Dockerfile.") || basename.endsWith(".Dockerfile") || basename === "Containerfile" || basename.startsWith("Containerfile.") || basename.endsWith(".Containerfile");
-}
-function isDockerComposeFile(filePath) {
-  return DOCKER_COMPOSE_FILENAME.test(path.basename(filePath));
-}
-function isNpmAndYarnFile(filePath) {
-  return NPM_AND_YARN_BASENAMES.has(path.basename(filePath));
-}
-function isUvFile(filePath) {
-  const basename = path.basename(normalizePath(filePath));
-  return basename === "pyproject.toml" || basename === "uv.lock";
-}
-function isPipRequirementsFile(filePath) {
-  const normalized = normalizePath(filePath);
-  const basename = path.basename(normalized).toLowerCase();
-  if (!/\.(txt|in)$/i.test(basename)) {
-    return false;
-  }
-  if (normalized.startsWith("requirements/") || normalized.includes("/requirements/")) {
-    return true;
-  }
-  return /^requirements.*\.(txt|in)$/i.test(basename) || /^.+-requirements\.(txt|in)$/i.test(basename) || /^constraints.*\.(txt|in)$/i.test(basename) || /^.+-constraints\.(txt|in)$/i.test(basename);
-}
-function isGitHubActionsFile(filePath) {
-  const normalized = normalizePath(filePath);
-  const basename = path.basename(normalized);
-  if (basename === "action.yml" || basename === "action.yaml") {
-    return true;
-  }
-  return normalized.startsWith(".github/workflows/") && hasYamlExtension(normalized);
-}
-function isDevcontainerFile(filePath) {
-  const normalized = normalizePath(filePath);
-  const basename = path.basename(normalized);
-  const inDevcontainerDir = normalized.startsWith(".devcontainer/") || normalized.includes("/.devcontainer/");
-  if (basename === ".devcontainer.json") {
-    return true;
-  }
-  if (basename === "devcontainer.json") {
-    return true;
-  }
-  return inDevcontainerDir && (hasJsonExtension(normalized) || hasYamlExtension(normalized) || isDockerfile(normalized));
-}
-function isDockerFile(filePath) {
-  return isDockerfile(filePath) || isDockerComposeFile(filePath);
-}
-var ECOSYSTEM_FILE_MATCHERS = /* @__PURE__ */ new Map([
-  ["npm_and_yarn", isNpmAndYarnFile],
-  ["uv", isUvFile],
-  ["pip", isPipRequirementsFile],
-  ["github_actions", isGitHubActionsFile],
-  ["devcontainers", isDevcontainerFile],
-  ["docker", isDockerFile],
-  ["docker_compose", isDockerComposeFile]
-]);
-function runGit(args, cwd = process.cwd()) {
-  return execFileSync("git", args, {
-    cwd,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"]
-  });
-}
-function pathExistsInGitRevision({ revision, filePath, cwd = process.cwd() }) {
-  const output = runGit(["ls-tree", "-r", "--name-only", revision, "--", filePath], cwd);
-  return output.split("\n").map((line) => normalizePath(line.trim())).includes(normalizePath(filePath));
-}
-function listChangedFiles({ baseSha, headSha, cwd = process.cwd() }) {
-  const output = runGit(["diff", "--name-only", baseSha, headSha], cwd);
-  return output.split("\n").map((line) => normalizePath(line.trim())).filter(Boolean);
-}
-function extractActionOwners(dependencyNames) {
-  if (!dependencyNames) {
-    return /* @__PURE__ */ new Set();
-  }
-  return new Set(
-    dependencyNames.split(",").map((name) => name.trim()).filter(Boolean).map((name) => name.split("/")[0]).filter(Boolean)
-  );
-}
-function findUnexpectedFiles({ packageEcosystem: packageEcosystem2, changedFiles }) {
-  const matcher = ECOSYSTEM_FILE_MATCHERS.get(packageEcosystem2);
-  if (!matcher) {
-    return [...changedFiles];
-  }
-  return changedFiles.filter((filePath) => !matcher(filePath));
-}
-
-// src/lib/compare-changed-files.ts
-var MAX_ERROR_MESSAGE_LENGTH = 240;
-var TRUNCATION_SUFFIX = "...";
-function getErrorMessage(error) {
-  const message = error instanceof Error ? error.message : String(error);
-  const normalized = message.replace(/\s+/g, " ").trim();
-  if (normalized.length <= MAX_ERROR_MESSAGE_LENGTH) {
-    return normalized;
-  }
-  return `${normalized.slice(0, MAX_ERROR_MESSAGE_LENGTH - TRUNCATION_SUFFIX.length)}${TRUNCATION_SUFFIX}`;
-}
-function readChangedFile({ file, baseSha, cwd }) {
-  const fullPath = path2.join(cwd, file);
-  if (!existsSync(fullPath)) {
-    return { error: `${file}:missing-in-head` };
-  }
-  let baseContent;
-  try {
-    baseContent = runGit(["show", `${baseSha}:${file}`], cwd);
-  } catch (error) {
-    if (!pathExistsInGitRevision({ revision: baseSha, filePath: file, cwd })) {
-      return { error: `${file}:missing-in-base` };
-    }
-    return { error: `${file}:git-show-failed:${getErrorMessage(error)}` };
-  }
-  let headContent;
-  try {
-    headContent = readFileSync(fullPath, "utf8");
-  } catch (error) {
-    return { error: `${file}:read-failed:${getErrorMessage(error)}` };
-  }
-  return { file, baseContent, headContent };
-}
-function compareChangedFiles({ files, baseSha, cwd, compare }) {
-  const newDependencies = [];
-  const errors = [];
-  for (const file of files) {
-    const contents = readChangedFile({ file, baseSha, cwd });
-    if ("error" in contents) {
-      errors.push(contents.error);
-      continue;
-    }
-    const comparison = compare(contents);
-    newDependencies.push(...comparison.newDependencies);
-    errors.push(...comparison.errors);
-  }
-  return { newDependencies, errors };
-}
-
-// src/lib/lockfiles.ts
 var LOCKFILE_BASENAMES = /* @__PURE__ */ new Set(["package-lock.json", "npm-shrinkwrap.json"]);
 var UNSUPPORTED_LOCKFILE_BASENAMES = /* @__PURE__ */ new Set(["yarn.lock", "pnpm-lock.yaml"]);
 function isSupportedLockfile(filePath) {
@@ -5414,10 +5591,10 @@ function extractDependencies(lockfile) {
   return dependencies;
 }
 function findChangedLockfiles({ baseSha, headSha, cwd = process.cwd() }) {
-  const changedFiles = listChangedFiles({ baseSha, headSha, cwd });
+  const changedFiles2 = listChangedFiles({ baseSha, headSha, cwd });
   return {
-    changedFiles: changedFiles.filter(isSupportedLockfile),
-    unsupportedFiles: changedFiles.filter(isUnsupportedLockfile)
+    changedFiles: changedFiles2.filter(isSupportedLockfile),
+    unsupportedFiles: changedFiles2.filter(isUnsupportedLockfile)
   };
 }
 function compareLockfiles({ file, baseContent, headContent }) {
@@ -5438,16 +5615,16 @@ function compareLockfiles({ file, baseContent, headContent }) {
   return { newDependencies, errors: [] };
 }
 function checkChangedLockfiles({ baseSha, headSha, cwd = process.cwd() }) {
-  const { changedFiles, unsupportedFiles } = findChangedLockfiles({ baseSha, headSha, cwd });
+  const { changedFiles: changedFiles2, unsupportedFiles } = findChangedLockfiles({ baseSha, headSha, cwd });
   const skippedFiles = [];
   const errors = unsupportedFiles.map((file) => `${file}:unsupported-lockfile`);
-  const comparison = compareChangedFiles({ files: changedFiles, baseSha, cwd, compare: compareLockfiles });
+  const comparison = compareChangedFiles({ files: changedFiles2, baseSha, cwd, compare: compareLockfiles });
   const { newDependencies } = comparison;
   errors.push(...comparison.errors);
   let status = "clear";
   if (unsupportedFiles.length > 0) {
     status = "unsupported-lockfile";
-  } else if (changedFiles.length === 0) {
+  } else if (changedFiles2.length === 0) {
     status = "no-lockfiles";
   } else if (errors.length > 0) {
     status = "error";
@@ -5457,7 +5634,7 @@ function checkChangedLockfiles({ baseSha, headSha, cwd = process.cwd() }) {
   return {
     ok: errors.length === 0 && newDependencies.length === 0,
     status,
-    changedFiles,
+    changedFiles: changedFiles2,
     unsupportedFiles,
     skippedFiles,
     newDependencies,
@@ -5673,8 +5850,8 @@ function loadAvailableChangedFileContents({ baseSha, file, cwd }) {
   }
   return contents;
 }
-function classifyChangedPipFiles({ baseSha, headSha, changedFiles, cwd = process.cwd() }) {
-  const allChangedFiles = changedFiles ?? listChangedFiles({ baseSha, headSha, cwd });
+function classifyChangedPipFiles({ baseSha, headSha, changedFiles: changedFiles2, cwd = process.cwd() }) {
+  const allChangedFiles = changedFiles2 ?? listChangedFiles({ baseSha, headSha, cwd });
   const requirementFiles = [];
   const unexpectedFiles = [];
   for (const file of allChangedFiles) {
@@ -5698,8 +5875,8 @@ function classifyChangedPipFiles({ baseSha, headSha, changedFiles, cwd = process
     unexpectedFiles
   };
 }
-function findChangedPipRequirementFiles({ baseSha, headSha, changedFiles, cwd = process.cwd() }) {
-  const allChangedFiles = changedFiles ?? listChangedFiles({ baseSha, headSha, cwd });
+function findChangedPipRequirementFiles({ baseSha, headSha, changedFiles: changedFiles2, cwd = process.cwd() }) {
+  const allChangedFiles = changedFiles2 ?? listChangedFiles({ baseSha, headSha, cwd });
   return {
     changedFiles: allChangedFiles.filter(isPipRequirementsFile)
   };
@@ -5730,8 +5907,8 @@ function comparePipRequirements({ file, baseContent, headContent }) {
   }
   return { newDependencies, errors };
 }
-function checkChangedPipRequirements({ baseSha, headSha, changedFiles, cwd = process.cwd() }) {
-  const { changedFiles: requirementFiles } = findChangedPipRequirementFiles({ baseSha, headSha, changedFiles, cwd });
+function checkChangedPipRequirements({ baseSha, headSha, changedFiles: changedFiles2, cwd = process.cwd() }) {
+  const { changedFiles: requirementFiles } = findChangedPipRequirementFiles({ baseSha, headSha, changedFiles: changedFiles2, cwd });
   const skippedFiles = [];
   const { newDependencies, errors } = compareChangedFiles({ files: requirementFiles, baseSha, cwd, compare: comparePipRequirements });
   let status = "clear";
@@ -5778,8 +5955,8 @@ function extractDependencies2(lockfile) {
   addDependenciesFromPackages2(lockfile.package, dependencies);
   return dependencies;
 }
-function findChangedUvLockfiles({ baseSha, headSha, changedFiles, cwd = process.cwd() }) {
-  const allChangedFiles = changedFiles ?? listChangedFiles({ baseSha, headSha, cwd });
+function findChangedUvLockfiles({ baseSha, headSha, changedFiles: changedFiles2, cwd = process.cwd() }) {
+  const allChangedFiles = changedFiles2 ?? listChangedFiles({ baseSha, headSha, cwd });
   return {
     changedFiles: allChangedFiles.filter(isUvLockfile)
   };
@@ -5802,11 +5979,11 @@ function compareUvLockfiles({ file, baseContent, headContent }) {
   return { newDependencies, errors: [] };
 }
 function checkChangedUvLockfiles({ baseSha, headSha, cwd = process.cwd() }) {
-  const { changedFiles } = findChangedUvLockfiles({ baseSha, headSha, cwd });
+  const { changedFiles: changedFiles2 } = findChangedUvLockfiles({ baseSha, headSha, cwd });
   const skippedFiles = [];
-  const { newDependencies, errors } = compareChangedFiles({ files: changedFiles, baseSha, cwd, compare: compareUvLockfiles });
+  const { newDependencies, errors } = compareChangedFiles({ files: changedFiles2, baseSha, cwd, compare: compareUvLockfiles });
   let status = "clear";
-  if (changedFiles.length === 0) {
+  if (changedFiles2.length === 0) {
     status = "no-lockfiles";
   } else if (errors.length > 0) {
     status = "error";
@@ -5816,7 +5993,7 @@ function checkChangedUvLockfiles({ baseSha, headSha, cwd = process.cwd() }) {
   return {
     ok: errors.length === 0 && newDependencies.length === 0,
     status,
-    changedFiles,
+    changedFiles: changedFiles2,
     skippedFiles,
     newDependencies,
     errors
@@ -5887,6 +6064,7 @@ console.log(`  Update type: ${updateType || "unknown"}`);
 var candidate = true;
 var reason = "eligible";
 var pipFileClassification = null;
+var changedFiles = [];
 if (!allowedEcosystems.has(packageEcosystem)) {
   candidate = false;
   reason = `unsupported-ecosystem:${packageEcosystem || "unknown"}`;
@@ -5898,7 +6076,7 @@ if (candidate && updateType !== "version-update:semver-patch" && updateType !== 
   console.log(`  Skipping: ${reason}`);
 }
 if (candidate) {
-  const changedFiles = listChangedFiles({
+  changedFiles = listChangedFiles({
     baseSha: pullRequest.base.sha,
     headSha: pullRequest.head.sha
   });
@@ -5944,6 +6122,67 @@ if (candidate && packageEcosystem === "github_actions") {
     }
   } else {
     console.log("  Trusted action owners check skipped (wildcard).");
+  }
+}
+if (candidate && (packageEcosystem === "docker" || packageEcosystem === "docker_compose")) {
+  console.log("  Checking changed image references...");
+  const imageResult = checkChangedImageReferences({
+    baseSha: pullRequest.base.sha,
+    changedFiles,
+    trustedImages: parseCsvList(process.env.TRUSTED_IMAGES)
+  });
+  setDependencyFileStatus(imageResult.status);
+  for (const change of imageResult.changes) {
+    console.log(`  ${change.file}:${change.line}: ${formatImageReference(change.from)} -> ${formatImageReference(change.to)}`);
+  }
+  if (imageResult.status === "error") {
+    candidate = false;
+    reason = "dependency-file-check-failed";
+    console.log("  Image reference check failed:");
+    for (const error of imageResult.errors) {
+      console.log(`    - ${error}`);
+    }
+  } else if (imageResult.status === "invalid-trusted-images") {
+    candidate = false;
+    reason = "invalid-trusted-images";
+    console.log("  Invalid trusted-images entries:");
+    for (const entry of imageResult.invalidTrustedImages) {
+      console.log(`    - ${entry}`);
+    }
+  } else if (imageResult.status === "unexpected-image-change") {
+    candidate = false;
+    reason = "unexpected-image-change";
+    console.log("  Changes other than an image tag or digest:");
+    for (const violation of imageResult.violations) {
+      console.log(`    - ${violation}`);
+    }
+  } else if (imageResult.status === "unpinned-image") {
+    candidate = false;
+    reason = "unpinned-image";
+    console.log("  Image references not pinned to a digest:");
+    for (const image of imageResult.unpinnedImages) {
+      console.log(`    - ${image}`);
+    }
+  } else if (imageResult.status === "digest-only-update") {
+    candidate = false;
+    reason = "digest-only-update";
+    console.log("  Image tags re-pushed with new content (digest changed, tag unchanged):");
+    for (const image of imageResult.digestOnlyUpdates) {
+      console.log(`    - ${image}`);
+    }
+  } else if (imageResult.status === "no-image-changes") {
+    candidate = false;
+    reason = "no-image-changes";
+    console.log("  No image references changed; manual review required.");
+  } else if (imageResult.status === "untrusted-image") {
+    candidate = false;
+    reason = "untrusted-image";
+    console.log("  Images not listed in trusted-images:");
+    for (const image of imageResult.untrustedImages) {
+      console.log(`    - ${image}`);
+    }
+  } else {
+    console.log("  All changed image references are pinned and trusted.");
   }
 }
 if (candidate && packageEcosystem === "npm_and_yarn") {
