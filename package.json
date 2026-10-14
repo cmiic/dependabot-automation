@@ -30,7 +30,7 @@
   },
   "devDependencies": {
     "@stylistic/eslint-plugin": "5.10.0",
-    "@types/node": "26.6.4",
+    "@types/node": "26.6.5",
     "@eslint/js": "10.0.1",
     "esbuild": "0.28.2",
     "eslint": "10.12.0",
