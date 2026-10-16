@@ -119,6 +119,34 @@ test('findUnexpectedFiles allows Dockerfiles and compose files for docker PRs', 
   assert.deepEqual(unexpectedFiles, [])
 })
 
+test('findUnexpectedFiles allows compose files under every name Dependabot updates for docker PRs', () => {
+  const unexpectedFiles = findUnexpectedFiles({
+    packageEcosystem: 'docker',
+    changedFiles: ['compose.dev.yaml', 'deploy/docker-compose.override.yml']
+  })
+
+  assert.deepEqual(unexpectedFiles, [])
+})
+
+test('findUnexpectedFiles allows only compose files for docker_compose PRs', () => {
+  const unexpectedFiles = findUnexpectedFiles({
+    packageEcosystem: 'docker_compose',
+    changedFiles: [
+      'compose.yaml',
+      'compose.dev.yaml',
+      'compose-prod.yml',
+      'infra/docker-compose.override.yml',
+      'Docker-Compose.YML',
+      'Dockerfile',
+      'my-compose.yml',
+      'compose.json',
+      'compose.yaml.bak'
+    ]
+  })
+
+  assert.deepEqual(unexpectedFiles, ['Dockerfile', 'my-compose.yml', 'compose.json', 'compose.yaml.bak'])
+})
+
 test('findUnexpectedFiles returns all files for unknown ecosystems', () => {
   const changedFiles = ['README.md']
   const unexpectedFiles = findUnexpectedFiles({

@@ -8,12 +8,12 @@ const NPM_AND_YARN_BASENAMES = new Set([
   'yarn.lock',
   'pnpm-lock.yaml'
 ])
-const DOCKER_COMPOSE_BASENAMES = new Set([
-  'docker-compose.yml',
-  'docker-compose.yaml',
-  'compose.yml',
-  'compose.yaml'
-])
+// Dependabot's docker_compose fetcher picks up any file matching
+// (docker-)?compose(-\w+)?(\.[\w-]+)?\.ya?ml, so compose.dev.yaml and
+// docker-compose.override.yml are compose files too. Anchoring it to the whole
+// basename keeps this narrower than Dependabot's unanchored match: a name that
+// merely contains it, such as my-compose.yml, still needs manual review.
+const DOCKER_COMPOSE_FILENAME = /^(?:docker-)?compose(?:-\w+)?(?:\.[\w-]+)?\.ya?ml$/i
 
 type FileMatcher = (filePath: string) => boolean
 
@@ -43,7 +43,7 @@ function isDockerfile (filePath: string): boolean {
 }
 
 function isDockerComposeFile (filePath: string): boolean {
-  return DOCKER_COMPOSE_BASENAMES.has(path.basename(filePath))
+  return DOCKER_COMPOSE_FILENAME.test(path.basename(filePath))
 }
 
 function isNpmAndYarnFile (filePath: string): boolean {
@@ -114,7 +114,8 @@ const ECOSYSTEM_FILE_MATCHERS = new Map<string, FileMatcher>([
   ['pip', isPipRequirementsFile],
   ['github_actions', isGitHubActionsFile],
   ['devcontainers', isDevcontainerFile],
-  ['docker', isDockerFile]
+  ['docker', isDockerFile],
+  ['docker_compose', isDockerComposeFile]
 ])
 
 // Sonar's S4036 flags resolving "git" through PATH and is accepted rather than
