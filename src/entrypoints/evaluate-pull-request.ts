@@ -4,7 +4,16 @@ import { randomUUID } from 'node:crypto'
 import type { ApprovalCommentPayload } from '../lib/approval-signal.ts'
 import type { IssueComment, PullRequest } from '../lib/github.ts'
 
-import { buildApprovalComment, buildDependencyKey, parseApprovalComment, resolveApprovalCheckedAt } from '../lib/approval-signal.ts'
+import {
+  buildApprovalComment,
+  buildDependencyKey,
+  hasUnappliedCooldownNotice,
+  parseApprovalComment,
+  parseFallbackCooldownDays,
+  requiredApprovalAgeDays,
+  resolveApprovalCheckedAt,
+  resolveApprovalCooldownDays
+} from '../lib/approval-signal.ts'
 import { checkChangedImageReferences, formatImageReference } from '../lib/docker-images.ts'
 import { GitHubClient, calculateAgeDays, parseCsvList } from '../lib/github.ts'
 import { checkChangedLockfiles } from '../lib/lockfiles.ts'
@@ -59,6 +68,7 @@ const outputs: Record<string, string> = {
   'package-ecosystem': '',
   'update-type': '',
   'age-days': '0',
+  'cooldown-days': '0',
   'dependency-file-status': 'skipped',
   'lockfile-status': 'skipped'
 }
@@ -81,6 +91,7 @@ if (pullRequest.user?.login !== 'dependabot[bot]') {
 
 const token = process.env.GITHUB_TOKEN
 const quarantineDays = Number.parseInt(process.env.QUARANTINE_DAYS ?? '3', 10)
+const fallbackCooldownDays = parseFallbackCooldownDays(process.env.FALLBACK_COOLDOWN_DAYS)
 const allowedEcosystems = new Set(parseCsvList(process.env.ALLOWED_ECOSYSTEMS))
 const packageEcosystem = process.env.METADATA_PACKAGE_ECOSYSTEM ?? ''
 const updateType = process.env.METADATA_UPDATE_TYPE ?? ''
@@ -389,14 +400,29 @@ const checkedAt = resolveApprovalCheckedAt({
   sha: pullRequest.head.sha,
   dependencyKey
 })
+const cooldownNoticed = hasUnappliedCooldownNotice(pullRequest.body)
+const cooldownDays = resolveApprovalCooldownDays({
+  existingPayload: existingApprovalComment?.payload,
+  sha: pullRequest.head.sha,
+  dependencyKey,
+  detectedCooldownDays: cooldownNoticed ? fallbackCooldownDays : 0
+})
+const requiredAgeDays = requiredApprovalAgeDays({ quarantineDays, cooldownDays })
 const ageDays = calculateAgeDays(checkedAt)
-const quarantinePassed = ageDays >= quarantineDays
+const quarantinePassed = ageDays >= requiredAgeDays
 const approvalStatus = candidate ? 'approved' : 'rejected'
 
 outputs['age-days'] = String(ageDays)
+outputs['cooldown-days'] = String(cooldownDays)
 outputs['quarantine-passed'] = quarantinePassed ? 'true' : 'false'
 outputs['automerge-enabled'] = pullRequest.auto_merge ? 'true' : 'false'
 
+if (cooldownNoticed) {
+  console.log('  Dependabot could not apply its cooldown: the registry gave no publication date.')
+}
+if (cooldownDays > 0) {
+  console.log(`  Waiting ${cooldownDays} day(s) for the missing cooldown before the ${quarantineDays}-day quarantine.`)
+}
 console.log(`  Approval age: ${ageDays} day(s)`)
 
 const approvalCommentBody = buildApprovalComment({
@@ -408,7 +434,8 @@ const approvalCommentBody = buildApprovalComment({
   dependencyFileStatus: outputs['dependency-file-status'],
   lockfileStatus: outputs['lockfile-status'],
   dependencyKey,
-  checkedAt
+  checkedAt,
+  cooldownDays
 })
 
 if (existingApprovalComment) {
@@ -425,7 +452,7 @@ if (!candidate) {
 
 if (!quarantinePassed) {
   outputs.reason = 'waiting-for-quarantine'
-  console.log(`  Approval signal written. Waiting for ${quarantineDays}-day quarantine.`)
+  console.log(`  Approval signal written. Waiting until the approval is ${requiredAgeDays} day(s) old.`)
   writeOutputs(outputs)
   process.exit(0)
 }

@@ -9,6 +9,10 @@ inputs:
     description: Minimum approval age before the cron action may enable auto-merge.
     required: false
     default: "3"
+  fallback-cooldown-days:
+    description: Days added before the quarantine when Dependabot says in the pull request that it could not apply its cooldown because the registry gave no publication date (for example GHCR). Set it to the cooldown in your dependabot.yml; the default matches Dependabot's default cooldown.
+    required: false
+    default: "3"
   allowed-ecosystems:
     description: Comma-separated package ecosystems allowed for auto-merge. Use the values returned by dependabot/fetch-metadata (e.g. github_actions, not the dependabot.yml form github-actions).
     required: false
@@ -48,6 +52,9 @@ outputs:
   age-days:
     description: Integer approval age in days for the current head SHA.
     value: ${{ steps.result.outputs.age-days }}
+  cooldown-days:
+    description: Days added before the quarantine because Dependabot could not apply its cooldown; 0 when it did.
+    value: ${{ steps.result.outputs.cooldown-days }}
   dependency-file-status:
     description: Outcome of the dependency file policy check.
     value: ${{ steps.result.outputs.dependency-file-status }}
@@ -75,6 +82,7 @@ runs:
           echo "package-ecosystem=" >> "$GITHUB_OUTPUT"
           echo "update-type=" >> "$GITHUB_OUTPUT"
           echo "age-days=0" >> "$GITHUB_OUTPUT"
+          echo "cooldown-days=0" >> "$GITHUB_OUTPUT"
           echo "dependency-file-status=skipped" >> "$GITHUB_OUTPUT"
           echo "lockfile-status=skipped" >> "$GITHUB_OUTPUT"
           exit 0
@@ -89,6 +97,7 @@ runs:
           echo "package-ecosystem=" >> "$GITHUB_OUTPUT"
           echo "update-type=" >> "$GITHUB_OUTPUT"
           echo "age-days=0" >> "$GITHUB_OUTPUT"
+          echo "cooldown-days=0" >> "$GITHUB_OUTPUT"
           echo "dependency-file-status=skipped" >> "$GITHUB_OUTPUT"
           echo "lockfile-status=skipped" >> "$GITHUB_OUTPUT"
           exit 0
@@ -126,6 +135,7 @@ runs:
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
         QUARANTINE_DAYS: ${{ inputs.quarantine-days }}
+        FALLBACK_COOLDOWN_DAYS: ${{ inputs.fallback-cooldown-days }}
         ALLOWED_ECOSYSTEMS: ${{ inputs.allowed-ecosystems }}
         METADATA_PACKAGE_ECOSYSTEM: ${{ steps.metadata.outputs.package-ecosystem }}
         METADATA_UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
@@ -145,6 +155,7 @@ runs:
         GUARD_PACKAGE_ECOSYSTEM: ${{ steps.guard.outputs.package-ecosystem }}
         GUARD_UPDATE_TYPE: ${{ steps.guard.outputs.update-type }}
         GUARD_AGE_DAYS: ${{ steps.guard.outputs.age-days }}
+        GUARD_COOLDOWN_DAYS: ${{ steps.guard.outputs.cooldown-days }}
         GUARD_DEPENDENCY_FILE_STATUS: ${{ steps.guard.outputs.dependency-file-status }}
         GUARD_LOCKFILE_STATUS: ${{ steps.guard.outputs.lockfile-status }}
         EVALUATE_CANDIDATE: ${{ steps.evaluate.outputs.candidate }}
@@ -154,6 +165,7 @@ runs:
         EVALUATE_PACKAGE_ECOSYSTEM: ${{ steps.evaluate.outputs.package-ecosystem }}
         EVALUATE_UPDATE_TYPE: ${{ steps.evaluate.outputs.update-type }}
         EVALUATE_AGE_DAYS: ${{ steps.evaluate.outputs.age-days }}
+        EVALUATE_COOLDOWN_DAYS: ${{ steps.evaluate.outputs.cooldown-days }}
         EVALUATE_DEPENDENCY_FILE_STATUS: ${{ steps.evaluate.outputs.dependency-file-status }}
         EVALUATE_LOCKFILE_STATUS: ${{ steps.evaluate.outputs.lockfile-status }}
       run: |
@@ -175,5 +187,6 @@ runs:
         pick package-ecosystem "$EVALUATE_PACKAGE_ECOSYSTEM" "$GUARD_PACKAGE_ECOSYSTEM"
         pick update-type "$EVALUATE_UPDATE_TYPE" "$GUARD_UPDATE_TYPE"
         pick age-days "$EVALUATE_AGE_DAYS" "$GUARD_AGE_DAYS"
+        pick cooldown-days "$EVALUATE_COOLDOWN_DAYS" "$GUARD_COOLDOWN_DAYS"
         pick dependency-file-status "$EVALUATE_DEPENDENCY_FILE_STATUS" "$GUARD_DEPENDENCY_FILE_STATUS"
         pick lockfile-status "$EVALUATE_LOCKFILE_STATUS" "$GUARD_LOCKFILE_STATUS"

@@ -21,6 +21,16 @@ function getApprovalCheckedAt(payload, comment) {
   }
   return payload.checkedAt;
 }
+function getApprovalCooldownDays(payload) {
+  const value = payload?.cooldownDays;
+  if (value === void 0) {
+    return 0;
+  }
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
+}
+function requiredApprovalAgeDays({ quarantineDays: quarantineDays2, cooldownDays }) {
+  return quarantineDays2 + cooldownDays;
+}
 function parseApprovalComment(body) {
   if (typeof body !== "string" || !body.startsWith(APPROVAL_MARKER_PREFIX)) {
     return null;
@@ -307,11 +317,18 @@ for (const pullRequestSummary of dependabotPullRequests) {
       console.log("  Skipping: latest approval signal has no valid checkedAt timestamp");
       continue;
     }
+    const cooldownDays = getApprovalCooldownDays(approvalComment.payload);
+    if (cooldownDays === null) {
+      console.log("  Skipping: latest approval signal has an invalid cooldownDays value");
+      continue;
+    }
+    const requiredAgeDays = requiredApprovalAgeDays({ quarantineDays, cooldownDays });
     const ageDays = calculateAgeDays(checkedAt);
     console.log(`  Approved at: ${checkedAt}`);
     console.log(`  Approval age: ${ageDays} day(s)`);
-    if (ageDays < quarantineDays) {
-      console.log(`  Waiting for quarantine (${ageDays} < ${quarantineDays} days since approval)`);
+    if (ageDays < requiredAgeDays) {
+      const cooldownNote = cooldownDays > 0 ? `, including ${cooldownDays} for the cooldown Dependabot could not apply` : "";
+      console.log(`  Waiting for quarantine (${ageDays} < ${requiredAgeDays} days since approval${cooldownNote})`);
       continue;
     }
     quarantinePassedCount += 1;

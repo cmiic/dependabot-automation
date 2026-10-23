@@ -21,6 +21,7 @@ export interface PullRequestSummary {
 
 export interface PullRequest extends PullRequestSummary {
   node_id: string
+  body?: string | null
   mergeable_state?: string | null
   auto_merge?: Record<string, unknown> | null
 }

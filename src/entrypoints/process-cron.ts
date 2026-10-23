@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto'
 import type { ApprovalCommentPayload } from '../lib/approval-signal.ts'
 import type { IssueComment, PullRequest } from '../lib/github.ts'
 
-import { getApprovalCheckedAt, parseApprovalComment } from '../lib/approval-signal.ts'
+import { getApprovalCheckedAt, getApprovalCooldownDays, parseApprovalComment, requiredApprovalAgeDays } from '../lib/approval-signal.ts'
 import { GitHubClient, GitHubRequestError, calculateAgeDays, normalizeMergeMethod } from '../lib/github.ts'
 
 type ApprovalCommentEntry = {
@@ -135,12 +135,20 @@ for (const pullRequestSummary of dependabotPullRequests) {
       continue
     }
 
+    const cooldownDays = getApprovalCooldownDays(approvalComment.payload)
+    if (cooldownDays === null) {
+      console.log('  Skipping: latest approval signal has an invalid cooldownDays value')
+      continue
+    }
+
+    const requiredAgeDays = requiredApprovalAgeDays({ quarantineDays, cooldownDays })
     const ageDays = calculateAgeDays(checkedAt)
     console.log(`  Approved at: ${checkedAt}`)
     console.log(`  Approval age: ${ageDays} day(s)`)
 
-    if (ageDays < quarantineDays) {
-      console.log(`  Waiting for quarantine (${ageDays} < ${quarantineDays} days since approval)`)
+    if (ageDays < requiredAgeDays) {
+      const cooldownNote = cooldownDays > 0 ? `, including ${cooldownDays} for the cooldown Dependabot could not apply` : ''
+      console.log(`  Waiting for quarantine (${ageDays} < ${requiredAgeDays} days since approval${cooldownNote})`)
       continue
     }
 

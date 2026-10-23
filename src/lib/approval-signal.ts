@@ -3,6 +3,13 @@ import { compareStrings } from './compare-strings.ts'
 const APPROVAL_MARKER_PREFIX = '<!-- dependabot-automation:approval '
 const APPROVAL_CHECKED_AT_SLACK_MS = 5 * 60 * 1000
 
+// Dependabot's DATE_UNAVAILABLE_DESCRIPTION (dependabot-core,
+// common/lib/dependabot/update_checkers/cooldown_calculation.rb). It opens the
+// pull request with this notice when a cooldown was configured but the
+// registry gave no publication date for at least one dependency -- GHCR among
+// them -- and lets the update through without waiting.
+const UNAPPLIED_COOLDOWN_NOTICE = 'Cooldown could not be applied because no publication date was available from the registry.'
+
 interface TrustedCommentMetadata {
   created_at: string
 }
@@ -23,6 +30,7 @@ export interface ApprovalCommentPayload {
   lockfileStatus?: string
   dependencyKey?: string | null
   checkedAt?: unknown
+  cooldownDays?: unknown
 }
 
 export interface BuildApprovalCommentOptions {
@@ -35,6 +43,7 @@ export interface BuildApprovalCommentOptions {
   lockfileStatus?: string
   dependencyKey?: string | null
   checkedAt?: string
+  cooldownDays?: number
 }
 
 export interface ResolveApprovalCheckedAtOptions {
@@ -95,6 +104,20 @@ export function getApprovalCheckedAt (
   return payload.checkedAt
 }
 
+// Whether an earlier evaluation covered the same update: the same head, or a
+// rebase of an approved pull request that left the dependency versions alone.
+function isSameUpdate ({ existingPayload, sha, dependencyKey }: {
+  existingPayload?: ApprovalCommentPayload | null
+  sha: string
+  dependencyKey: string | null
+}): boolean {
+  if (existingPayload?.sha === sha) {
+    return true
+  }
+
+  return Boolean(dependencyKey) && existingPayload?.dependencyKey === dependencyKey && existingPayload?.status === 'approved'
+}
+
 export function resolveApprovalCheckedAt ({
   existingPayload,
   existingComment,
@@ -104,19 +127,82 @@ export function resolveApprovalCheckedAt ({
 }: ResolveApprovalCheckedAtOptions): string {
   const checkedAt = getApprovalCheckedAt(existingPayload, existingComment)
 
-  if (!checkedAt) {
-    return fallbackCheckedAt
-  }
-
-  if (existingPayload?.sha === sha) {
-    return checkedAt
-  }
-
-  if (dependencyKey && existingPayload?.dependencyKey === dependencyKey && existingPayload?.status === 'approved') {
+  if (checkedAt && isSameUpdate({ existingPayload, sha, dependencyKey })) {
     return checkedAt
   }
 
   return fallbackCheckedAt
+}
+
+export function hasUnappliedCooldownNotice (body: string | null | undefined): boolean {
+  if (typeof body !== 'string') {
+    return false
+  }
+
+  // The notice sits in a `> [!WARNING]` block; drop the quote markers and
+  // collapse whitespace so a re-wrapped body still matches.
+  const text = body.replace(/^[ \t]*>[ \t]?/gm, '').replace(/\s+/g, ' ').toLowerCase()
+
+  return text.includes(UNAPPLIED_COOLDOWN_NOTICE.toLowerCase())
+}
+
+export function parseFallbackCooldownDays (raw: string | null | undefined): number {
+  const value = (raw ?? '').trim()
+
+  if (value === '') {
+    return 3
+  }
+
+  // A long enough run of digits parses to Infinity, which the approval comment
+  // would store as null -- a value the cron skips instead of a run that fails.
+  const days = /^\d+$/.test(value) ? Number.parseInt(value, 10) : Number.NaN
+
+  if (!Number.isSafeInteger(days)) {
+    throw new Error(`fallback-cooldown-days must be a whole number of days, got "${value}"`)
+  }
+
+  return days
+}
+
+// Missing means the approval predates the field, or no cooldown was added, and
+// counts as zero. Anything else that is not a whole number of days is null, so
+// a caller can refuse to merge on a value it cannot read.
+export function getApprovalCooldownDays (payload: ApprovalCommentPayload | null | undefined): number | null {
+  const value = payload?.cooldownDays
+
+  if (value === undefined) {
+    return 0
+  }
+
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : null
+}
+
+// The cooldown Dependabot could not apply is waited out first, then the
+// quarantine on top: the same sequence a release goes through when Dependabot
+// holds it back for the cooldown before opening the pull request.
+export function requiredApprovalAgeDays ({ quarantineDays, cooldownDays }: { quarantineDays: number, cooldownDays: number }): number {
+  return quarantineDays + cooldownDays
+}
+
+// Sticky for the same update, like the approval timestamp: once a pull request
+// was flagged, a rebase that drops the notice from the body does not shorten
+// the wait for the versions it was flagged for.
+export function resolveApprovalCooldownDays ({
+  existingPayload,
+  sha,
+  dependencyKey = null,
+  detectedCooldownDays
+}: {
+  existingPayload?: ApprovalCommentPayload | null
+  sha: string
+  dependencyKey?: string | null
+  detectedCooldownDays: number
+}): number {
+  if (!isSameUpdate({ existingPayload, sha, dependencyKey })) {
+    return detectedCooldownDays
+  }
+
+  return Math.max(getApprovalCooldownDays(existingPayload) ?? 0, detectedCooldownDays)
 }
 
 export function buildApprovalComment ({
@@ -128,7 +214,8 @@ export function buildApprovalComment ({
   dependencyFileStatus,
   lockfileStatus,
   dependencyKey = null,
-  checkedAt = new Date().toISOString()
+  checkedAt = new Date().toISOString(),
+  cooldownDays = 0
 }: BuildApprovalCommentOptions): string {
   const resolvedDependencyFileStatus = dependencyFileStatus || lockfileStatus || 'skipped'
   const resolvedLockfileStatus = lockfileStatus || resolvedDependencyFileStatus
@@ -141,7 +228,9 @@ export function buildApprovalComment ({
     dependencyFileStatus: resolvedDependencyFileStatus,
     lockfileStatus: resolvedLockfileStatus,
     dependencyKey,
-    checkedAt
+    checkedAt,
+    // Only written when set, so every other approval keeps its earlier shape.
+    ...(cooldownDays > 0 ? { cooldownDays } : {})
   })
 
   const humanStatus = status === 'approved' ? 'approved' : 'not approved'
@@ -158,7 +247,8 @@ export function buildApprovalComment ({
     `- Update type: \`${updateType || 'unknown'}\``,
     `- Dependency file status: \`${resolvedDependencyFileStatus}\``,
     `- Lockfile status: \`${resolvedLockfileStatus}\``,
-    `- Checked at: \`${checkedAt}\``
+    `- Checked at: \`${checkedAt}\``,
+    ...(cooldownDays > 0 ? [`- Cooldown: not applied by Dependabot, \`${cooldownDays}\` day(s) added before the quarantine`] : [])
   ].join('\n')
 }
 
