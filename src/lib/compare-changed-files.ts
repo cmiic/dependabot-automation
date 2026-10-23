@@ -34,7 +34,7 @@ export function getErrorMessage (error: unknown): string {
 // ecosystem, down to the error strings: only the comparison of the two
 // contents differs. Returning either the contents or the single error that
 // explains why they are unavailable keeps that shared shape in one place.
-function readChangedFile ({ file, baseSha, cwd }: { file: string, baseSha: string, cwd: string }): ChangedFileContents | { error: string } {
+export function readChangedFile ({ file, baseSha, cwd }: { file: string, baseSha: string, cwd: string }): ChangedFileContents | { error: string } {
   const fullPath = path.join(cwd, file)
 
   if (!existsSync(fullPath)) {

@@ -5,6 +5,7 @@ import type { ApprovalCommentPayload } from '../lib/approval-signal.ts'
 import type { IssueComment, PullRequest } from '../lib/github.ts'
 
 import { buildApprovalComment, buildDependencyKey, parseApprovalComment, resolveApprovalCheckedAt } from '../lib/approval-signal.ts'
+import { checkChangedImageReferences, formatImageReference } from '../lib/docker-images.ts'
 import { GitHubClient, calculateAgeDays, parseCsvList } from '../lib/github.ts'
 import { checkChangedLockfiles } from '../lib/lockfiles.ts'
 import { checkChangedPipRequirements, classifyChangedPipFiles } from '../lib/pip-requirements.ts'
@@ -95,6 +96,7 @@ console.log(`  Update type: ${updateType || 'unknown'}`)
 let candidate = true
 let reason = 'eligible'
 let pipFileClassification: ReturnType<typeof classifyChangedPipFiles> | null = null
+let changedFiles: string[] = []
 
 if (!allowedEcosystems.has(packageEcosystem)) {
   candidate = false
@@ -113,7 +115,7 @@ if (
 }
 
 if (candidate) {
-  const changedFiles = listChangedFiles({
+  changedFiles = listChangedFiles({
     baseSha: pullRequest.base.sha,
     headSha: pullRequest.head.sha
   })
@@ -168,6 +170,72 @@ if (candidate && packageEcosystem === 'github_actions') {
     }
   } else {
     console.log('  Trusted action owners check skipped (wildcard).')
+  }
+}
+
+if (candidate && (packageEcosystem === 'docker' || packageEcosystem === 'docker_compose')) {
+  console.log('  Checking changed image references...')
+
+  const imageResult = checkChangedImageReferences({
+    baseSha: pullRequest.base.sha,
+    changedFiles,
+    trustedImages: parseCsvList(process.env.TRUSTED_IMAGES)
+  })
+
+  setDependencyFileStatus(imageResult.status)
+
+  for (const change of imageResult.changes) {
+    console.log(`  ${change.file}:${change.line}: ${formatImageReference(change.from)} -> ${formatImageReference(change.to)}`)
+  }
+
+  if (imageResult.status === 'error') {
+    candidate = false
+    reason = 'dependency-file-check-failed'
+    console.log('  Image reference check failed:')
+    for (const error of imageResult.errors) {
+      console.log(`    - ${error}`)
+    }
+  } else if (imageResult.status === 'invalid-trusted-images') {
+    candidate = false
+    reason = 'invalid-trusted-images'
+    console.log('  Invalid trusted-images entries:')
+    for (const entry of imageResult.invalidTrustedImages) {
+      console.log(`    - ${entry}`)
+    }
+  } else if (imageResult.status === 'unexpected-image-change') {
+    candidate = false
+    reason = 'unexpected-image-change'
+    console.log('  Changes other than an image tag or digest:')
+    for (const violation of imageResult.violations) {
+      console.log(`    - ${violation}`)
+    }
+  } else if (imageResult.status === 'unpinned-image') {
+    candidate = false
+    reason = 'unpinned-image'
+    console.log('  Image references not pinned to a digest:')
+    for (const image of imageResult.unpinnedImages) {
+      console.log(`    - ${image}`)
+    }
+  } else if (imageResult.status === 'digest-only-update') {
+    candidate = false
+    reason = 'digest-only-update'
+    console.log('  Image tags re-pushed with new content (digest changed, tag unchanged):')
+    for (const image of imageResult.digestOnlyUpdates) {
+      console.log(`    - ${image}`)
+    }
+  } else if (imageResult.status === 'no-image-changes') {
+    candidate = false
+    reason = 'no-image-changes'
+    console.log('  No image references changed; manual review required.')
+  } else if (imageResult.status === 'untrusted-image') {
+    candidate = false
+    reason = 'untrusted-image'
+    console.log('  Images not listed in trusted-images:')
+    for (const image of imageResult.untrustedImages) {
+      console.log(`    - ${image}`)
+    }
+  } else {
+    console.log('  All changed image references are pinned and trusted.')
   }
 }
 
