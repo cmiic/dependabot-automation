@@ -27,7 +27,7 @@
     "lint:md": "markdownlint-cli2"
   },
   "dependencies": {
-    "toml": "5.0.0"
+    "toml": "5.0.1"
   },
   "devDependencies": {
     "@stylistic/eslint-plugin": "5.10.0",
