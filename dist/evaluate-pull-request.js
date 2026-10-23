@@ -4971,10 +4971,11 @@ function parseFallbackCooldownDays(raw) {
   if (value === "") {
     return 3;
   }
-  if (!/^\d+$/.test(value)) {
+  const days = /^\d+$/.test(value) ? Number.parseInt(value, 10) : Number.NaN;
+  if (!Number.isSafeInteger(days)) {
     throw new Error(`fallback-cooldown-days must be a whole number of days, got "${value}"`);
   }
-  return Number.parseInt(value, 10);
+  return days;
 }
 function getApprovalCooldownDays(payload) {
   const value = payload?.cooldownDays;

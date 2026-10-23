@@ -153,11 +153,15 @@ export function parseFallbackCooldownDays (raw: string | null | undefined): numb
     return 3
   }
 
-  if (!/^\d+$/.test(value)) {
+  // A long enough run of digits parses to Infinity, which the approval comment
+  // would store as null -- a value the cron skips instead of a run that fails.
+  const days = /^\d+$/.test(value) ? Number.parseInt(value, 10) : Number.NaN
+
+  if (!Number.isSafeInteger(days)) {
     throw new Error(`fallback-cooldown-days must be a whole number of days, got "${value}"`)
   }
 
-  return Number.parseInt(value, 10)
+  return days
 }
 
 // Missing means the approval predates the field, or no cooldown was added, and

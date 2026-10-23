@@ -266,7 +266,7 @@ test('parseFallbackCooldownDays defaults to Dependabot\'s three days and reads w
 })
 
 test('parseFallbackCooldownDays rejects anything but a whole number of days', () => {
-  for (const raw of ['-1', '1.5', 'three', '3d']) {
+  for (const raw of ['-1', '1.5', 'three', '3d', '9007199254740993', '9'.repeat(400)]) {
     assert.throws(() => parseFallbackCooldownDays(raw), /fallback-cooldown-days must be a whole number of days/, raw)
   }
 })
