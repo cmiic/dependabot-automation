@@ -386,16 +386,16 @@ var require_parser = __commonJS({
         return (sign || "") + digits;
       }
       function peg$f42(digits) {
-        return node("Integer", BigInt("0x" + stripUnderscores(digits)), offset());
+        return integerNode(16, digits, offset());
       }
       function peg$f43(digits) {
-        return node("Integer", BigInt("0o" + stripUnderscores(digits)), offset());
+        return integerNode(8, digits, offset());
       }
       function peg$f44(digits) {
-        return node("Integer", BigInt("0b" + stripUnderscores(digits)), offset());
+        return integerNode(2, digits, offset());
       }
       function peg$f45(text2) {
-        return node("Integer", BigInt(stripUnderscores(text2)), offset());
+        return integerNode(10, text2, offset());
       }
       function peg$f46(sign) {
         return (sign || "") + "0";
@@ -4580,6 +4580,16 @@ var require_parser = __commonJS({
       function stripUnderscores(str) {
         return str.indexOf("_") === -1 ? str : str.replace(/_/g, "");
       }
+      var MAX_INT64_DIGITS = { 2: 63, 8: 21, 10: 19, 16: 16 };
+      var RADIX_PREFIX = { 2: "0b", 8: "0o", 10: "", 16: "0x" };
+      function integerNode(radix, text2, off) {
+        var digits = stripUnderscores(text2);
+        var significant = digits.replace(/^[+-]?0*/, "");
+        if (significant.length > MAX_INT64_DIGITS[radix]) {
+          genError("Integer literal is outside the 64-bit signed integer range required by TOML.", off);
+        }
+        return node("Integer", BigInt(RADIX_PREFIX[radix] + digits), off);
+      }
       function convertCodePoint(str) {
         var num = parseInt(str, 16);
         if (num !== num || num < 0 || num > 1114111 || num > 55295 && num < 57344) {
@@ -4636,6 +4646,11 @@ var require_compiler = __commonJS({
     var INT64_MAX = 2n ** 63n - 1n;
     var MAX_SAFE = BigInt(Number.MAX_SAFE_INTEGER);
     var MIN_SAFE = BigInt(Number.MIN_SAFE_INTEGER);
+    var HEADER_TABLE = "header";
+    var IMPLICIT_TABLE = "implicit";
+    var DOTTED_TABLE = "dotted";
+    var INLINE_TABLE = "inline";
+    var TABLE_ARRAY = "table-array";
     function compile(nodes, inputText, options) {
       options = options || {};
       var temporal = null;
@@ -4647,13 +4662,10 @@ var require_compiler = __commonJS({
           );
         }
       }
-      var assignedPaths = /* @__PURE__ */ new Set();
-      var valueAssignments = /* @__PURE__ */ new Set();
-      var explicitTablePaths = /* @__PURE__ */ new Set();
-      var currentPath = [];
-      var ownedContainers = /* @__PURE__ */ new WeakSet();
-      var data = createTable();
+      var containerKinds = /* @__PURE__ */ new WeakMap();
+      var data = createTable(HEADER_TABLE);
       var context = data;
+      var currentPath = [];
       return reduce(nodes);
       function reduce(nodes2) {
         var node;
@@ -4693,35 +4705,36 @@ var require_compiler = __commonJS({
         throw ex;
       }
       function assign(node) {
-        var keys = node.key;
-        var value = node.value;
-        var off = node.offset;
-        if (!Array.isArray(keys)) keys = [keys];
-        var reduced = reduceValueNode(value);
-        var target = context;
+        var keys = Array.isArray(node.key) ? node.key : [node.key];
+        assignDotted(context, keys, reduceValueNode(node.value), node.offset, currentPath);
+      }
+      function assignDotted(table, keys, value, off, prefix) {
         for (var i = 0; i < keys.length - 1; i++) {
-          var k = keys[i];
-          var intermediatePath = makeFullPath(keys.slice(0, i + 1));
-          if (typeof target[k] === "undefined") {
-            target[k] = createTable();
-            assignedPaths.add(intermediatePath);
-          } else if (typeof target[k] !== "object" || target[k] === null || Array.isArray(target[k])) {
-            genError("Cannot redefine existing key '" + intermediatePath + "'.", off);
-          } else if (valueAssignments.has(intermediatePath)) {
-            genError("Cannot redefine existing key '" + intermediatePath + "'.", off);
-          } else if (explicitTablePaths.has(intermediatePath) && intermediatePath !== pathKey(currentPath)) {
-            genError("Cannot use dotted keys to extend table '" + intermediatePath + "' defined elsewhere.", off);
+          var key = keys[i];
+          var next = table[key];
+          if (next === void 0) {
+            next = createTable(DOTTED_TABLE);
+            table[key] = next;
+          } else {
+            var kind = containerKinds.get(next);
+            if (kind !== DOTTED_TABLE && kind !== IMPLICIT_TABLE) {
+              var path6 = pathKey(prefix.concat(keys.slice(0, i + 1)));
+              if (kind === HEADER_TABLE) {
+                genError("Cannot use dotted keys to extend table '" + path6 + "' defined elsewhere.", off);
+              }
+              if (kind === INLINE_TABLE) {
+                genError("Cannot extend inline table '" + path6 + "'.", off);
+              }
+              genError("Cannot redefine existing key '" + path6 + "'.", off);
+            }
           }
-          target = target[k];
+          table = next;
         }
         var lastKey = keys[keys.length - 1];
-        var fullPath = makeFullPath(keys);
-        if (typeof target[lastKey] !== "undefined") {
-          genError("Cannot redefine existing key '" + fullPath + "'.", off);
+        if (table[lastKey] !== void 0) {
+          genError("Cannot redefine existing key '" + pathKey(prefix.concat(keys)) + "'.", off);
         }
-        target[lastKey] = reduced;
-        assignedPaths.add(fullPath);
-        valueAssignments.add(fullPath);
+        table[lastKey] = value;
       }
       function reduceValueNode(node) {
         if (node.type === "Integer") {
@@ -4769,108 +4782,86 @@ var require_compiler = __commonJS({
         return Number(value);
       }
       function reduceInlineTableNode(values) {
-        var obj = createTable();
-        var definedKeys = /* @__PURE__ */ new Set();
+        var table = createTable(INLINE_TABLE);
         for (var i = 0; i < values.length; i++) {
           var val = values[i];
           if (val.type !== "InlineTableValue") continue;
-          var keys = val.key;
-          if (!Array.isArray(keys)) keys = [keys];
-          var reduced = reduceValueNode(val.value);
-          setNestedKey(obj, keys, reduced, val.offset, definedKeys);
-          definedKeys.add(pathKey(keys));
+          var keys = Array.isArray(val.key) ? val.key : [val.key];
+          assignDotted(table, keys, reduceValueNode(val.value), val.offset, []);
         }
-        return obj;
-      }
-      function setNestedKey(obj, keys, value, off, definedKeys) {
-        for (var i = 0; i < keys.length - 1; i++) {
-          var k = keys[i];
-          var intermediatePath = pathKey(keys.slice(0, i + 1));
-          if (typeof obj[k] === "undefined") {
-            obj[k] = createTable();
-          } else if (typeof obj[k] !== "object" || obj[k] === null || Array.isArray(obj[k])) {
-            genError("Cannot redefine existing key '" + intermediatePath + "'.", off);
-          } else if (definedKeys && definedKeys.has(intermediatePath)) {
-            genError("Cannot extend inline table '" + intermediatePath + "'.", off);
-          }
-          obj = obj[k];
-        }
-        var lastKey = keys[keys.length - 1];
-        if (typeof obj[lastKey] !== "undefined") {
-          genError("Cannot redefine existing key '" + pathKey(keys) + "'.", off);
-        }
-        obj[lastKey] = value;
+        return table;
       }
       function setPath(node) {
         var path6 = node.value;
-        var quotedPath = path6.map(quoteDottedString).join(".");
         var off = node.offset;
-        if (assignedPaths.has(quotedPath)) {
-          genError("Cannot redefine existing key '" + path6 + "'.", off);
+        var parent = resolveParentTable(path6, off);
+        var name = path6[path6.length - 1];
+        var table = parent[name];
+        if (table === void 0) {
+          table = createTable(HEADER_TABLE);
+          parent[name] = table;
+        } else if (containerKinds.get(table) === IMPLICIT_TABLE) {
+          containerKinds.set(table, HEADER_TABLE);
+        } else {
+          genError("Cannot redefine existing key '" + pathKey(path6) + "'.", off);
         }
-        assignedPaths.add(quotedPath);
-        explicitTablePaths.add(quotedPath);
-        context = deepRef(data, path6, createTable(), off);
+        context = table;
         currentPath = path6;
       }
       function addTableArray(node) {
         var path6 = node.value;
-        var quotedPath = path6.map(quoteDottedString).join(".");
         var off = node.offset;
-        if (valueAssignments.has(quotedPath)) {
-          genError("Cannot append to statically defined array '" + quotedPath + "'.", off);
+        var parent = resolveParentTable(path6, off);
+        var name = path6[path6.length - 1];
+        var tableArray = parent[name];
+        if (tableArray === void 0) {
+          tableArray = createTableArray();
+          parent[name] = tableArray;
+        } else if (containerKinds.get(tableArray) !== TABLE_ARRAY) {
+          if (Array.isArray(tableArray)) {
+            genError("Cannot append to statically defined array '" + pathKey(path6) + "'.", off);
+          }
+          genError("Cannot redefine existing key '" + pathKey(path6) + "'.", off);
         }
-        assignedPaths.forEach(function(p) {
-          if (isSameOrSubPath(p, quotedPath)) assignedPaths.delete(p);
-        });
-        valueAssignments.forEach(function(p) {
-          if (isSameOrSubPath(p, quotedPath)) valueAssignments.delete(p);
-        });
-        assignedPaths.add(quotedPath);
-        context = deepRef(data, path6, createTableArray(), off);
+        var table = createTable(HEADER_TABLE);
+        tableArray.push(table);
+        context = table;
         currentPath = path6;
-        if (context instanceof Array) {
-          var newObj = createTable();
-          context.push(newObj);
-          context = newObj;
-        } else {
-          genError("Cannot redefine existing key '" + path6 + "'.", off);
-        }
       }
-      function deepRef(start, keys, value, off) {
-        var ctx = start;
-        for (var i = 0; i < keys.length; i++) {
-          var key = keys[i];
-          var traversedPath = pathKey(keys.slice(0, i + 1));
-          if (typeof ctx[key] === "undefined") {
-            if (i === keys.length - 1) {
-              ctx[key] = value;
-            } else {
-              ctx[key] = createTable();
-            }
-          } else if (i !== keys.length - 1 && valueAssignments.has(traversedPath)) {
-            genError("Cannot redefine existing key '" + traversedPath + "'.", off);
+      function resolveParentTable(path6, off) {
+        var table = data;
+        for (var i = 0; i < path6.length - 1; i++) {
+          var key = path6[i];
+          var next = table[key];
+          if (next === void 0) {
+            next = createTable(IMPLICIT_TABLE);
+            table[key] = next;
           }
-          ctx = ctx[key];
-          if (i < keys.length - 1) {
-            if (!isOwnedContainer(ctx)) {
-              genError("Cannot redefine existing key '" + traversedPath + "'.", off);
-            }
-            if (ctx instanceof Array) {
-              if (!ctx.length) {
-                genError("Cannot redefine existing key '" + traversedPath + "'.", off);
-              }
-              ctx = ctx[ctx.length - 1];
-              if (!isOwnedContainer(ctx)) {
-                genError("Cannot redefine existing key '" + traversedPath + "'.", off);
-              }
-            }
+          var kind = containerKinds.get(next);
+          if (kind === TABLE_ARRAY) {
+            next = next[next.length - 1];
+          } else if (kind === void 0 || kind === INLINE_TABLE) {
+            genError("Cannot redefine existing key '" + pathKey(path6.slice(0, i + 1)) + "'.", off);
           }
+          table = next;
         }
-        return ctx;
+        return table;
       }
       function reduceArray(array) {
         return array.map(reduceValueNode);
+      }
+      function createTable(kind) {
+        var table = /* @__PURE__ */ Object.create(null);
+        containerKinds.set(table, kind);
+        return table;
+      }
+      function createTableArray() {
+        var tableArray = [];
+        containerKinds.set(tableArray, TABLE_ARRAY);
+        return tableArray;
+      }
+      function pathKey(keys) {
+        return keys.map(quoteDottedString).join(".");
       }
       function quoteDottedString(str) {
         if (str.indexOf(".") > -1) {
@@ -4878,28 +4869,6 @@ var require_compiler = __commonJS({
         } else {
           return str;
         }
-      }
-      function createTable() {
-        var table = /* @__PURE__ */ Object.create(null);
-        ownedContainers.add(table);
-        return table;
-      }
-      function createTableArray() {
-        var tableArray = [];
-        ownedContainers.add(tableArray);
-        return tableArray;
-      }
-      function isOwnedContainer(value) {
-        return value !== null && typeof value === "object" && ownedContainers.has(value);
-      }
-      function pathKey(keys) {
-        return keys.map(quoteDottedString).join(".");
-      }
-      function makeFullPath(keys) {
-        return pathKey(currentPath.concat(keys));
-      }
-      function isSameOrSubPath(path6, prefix) {
-        return path6 === prefix || path6.indexOf(prefix + ".") === 0;
       }
     }
     module.exports = {
