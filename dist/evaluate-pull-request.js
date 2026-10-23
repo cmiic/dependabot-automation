@@ -4904,6 +4904,7 @@ function compareStrings(a, b) {
 // src/lib/approval-signal.ts
 var APPROVAL_MARKER_PREFIX = "<!-- dependabot-automation:approval ";
 var APPROVAL_CHECKED_AT_SLACK_MS = 5 * 60 * 1e3;
+var UNAPPLIED_COOLDOWN_NOTICE = "Cooldown could not be applied because no publication date was available from the registry.";
 function isDependencyUpdate(value) {
   return typeof value === "object" && value !== null && typeof value.dependencyName === "string";
 }
@@ -4939,6 +4940,12 @@ function getApprovalCheckedAt(payload, comment) {
   }
   return payload.checkedAt;
 }
+function isSameUpdate({ existingPayload, sha, dependencyKey: dependencyKey2 }) {
+  if (existingPayload?.sha === sha) {
+    return true;
+  }
+  return Boolean(dependencyKey2) && existingPayload?.dependencyKey === dependencyKey2 && existingPayload?.status === "approved";
+}
 function resolveApprovalCheckedAt({
   existingPayload,
   existingComment,
@@ -4947,16 +4954,48 @@ function resolveApprovalCheckedAt({
   fallbackCheckedAt = (/* @__PURE__ */ new Date()).toISOString()
 }) {
   const checkedAt2 = getApprovalCheckedAt(existingPayload, existingComment);
-  if (!checkedAt2) {
-    return fallbackCheckedAt;
-  }
-  if (existingPayload?.sha === sha) {
-    return checkedAt2;
-  }
-  if (dependencyKey2 && existingPayload?.dependencyKey === dependencyKey2 && existingPayload?.status === "approved") {
+  if (checkedAt2 && isSameUpdate({ existingPayload, sha, dependencyKey: dependencyKey2 })) {
     return checkedAt2;
   }
   return fallbackCheckedAt;
+}
+function hasUnappliedCooldownNotice(body) {
+  if (typeof body !== "string") {
+    return false;
+  }
+  const text = body.replace(/^[ \t]*>[ \t]?/gm, "").replace(/\s+/g, " ").toLowerCase();
+  return text.includes(UNAPPLIED_COOLDOWN_NOTICE.toLowerCase());
+}
+function parseFallbackCooldownDays(raw) {
+  const value = (raw ?? "").trim();
+  if (value === "") {
+    return 3;
+  }
+  if (!/^\d+$/.test(value)) {
+    throw new Error(`fallback-cooldown-days must be a whole number of days, got "${value}"`);
+  }
+  return Number.parseInt(value, 10);
+}
+function getApprovalCooldownDays(payload) {
+  const value = payload?.cooldownDays;
+  if (value === void 0) {
+    return 0;
+  }
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
+}
+function requiredApprovalAgeDays({ quarantineDays: quarantineDays2, cooldownDays: cooldownDays2 }) {
+  return quarantineDays2 + cooldownDays2;
+}
+function resolveApprovalCooldownDays({
+  existingPayload,
+  sha,
+  dependencyKey: dependencyKey2 = null,
+  detectedCooldownDays
+}) {
+  if (!isSameUpdate({ existingPayload, sha, dependencyKey: dependencyKey2 })) {
+    return detectedCooldownDays;
+  }
+  return Math.max(getApprovalCooldownDays(existingPayload) ?? 0, detectedCooldownDays);
 }
 function buildApprovalComment({
   status,
@@ -4967,7 +5006,8 @@ function buildApprovalComment({
   dependencyFileStatus,
   lockfileStatus,
   dependencyKey: dependencyKey2 = null,
-  checkedAt: checkedAt2 = (/* @__PURE__ */ new Date()).toISOString()
+  checkedAt: checkedAt2 = (/* @__PURE__ */ new Date()).toISOString(),
+  cooldownDays: cooldownDays2 = 0
 }) {
   const resolvedDependencyFileStatus = dependencyFileStatus || lockfileStatus || "skipped";
   const resolvedLockfileStatus = lockfileStatus || resolvedDependencyFileStatus;
@@ -4980,7 +5020,9 @@ function buildApprovalComment({
     dependencyFileStatus: resolvedDependencyFileStatus,
     lockfileStatus: resolvedLockfileStatus,
     dependencyKey: dependencyKey2,
-    checkedAt: checkedAt2
+    checkedAt: checkedAt2,
+    // Only written when set, so every other approval keeps its earlier shape.
+    ...cooldownDays2 > 0 ? { cooldownDays: cooldownDays2 } : {}
   });
   const humanStatus = status === "approved" ? "approved" : "not approved";
   return [
@@ -4995,7 +5037,8 @@ function buildApprovalComment({
     `- Update type: \`${updateType2 || "unknown"}\``,
     `- Dependency file status: \`${resolvedDependencyFileStatus}\``,
     `- Lockfile status: \`${resolvedLockfileStatus}\``,
-    `- Checked at: \`${checkedAt2}\``
+    `- Checked at: \`${checkedAt2}\``,
+    ...cooldownDays2 > 0 ? [`- Cooldown: not applied by Dependabot, \`${cooldownDays2}\` day(s) added before the quarantine`] : []
   ].join("\n");
 }
 function parseApprovalComment(body) {
@@ -6005,6 +6048,7 @@ var outputs = {
   "package-ecosystem": "",
   "update-type": "",
   "age-days": "0",
+  "cooldown-days": "0",
   "dependency-file-status": "skipped",
   "lockfile-status": "skipped"
 };
@@ -6023,6 +6067,7 @@ if (pullRequest.user?.login !== "dependabot[bot]") {
 }
 var token = process.env.GITHUB_TOKEN;
 var quarantineDays = Number.parseInt(process.env.QUARANTINE_DAYS ?? "3", 10);
+var fallbackCooldownDays = parseFallbackCooldownDays(process.env.FALLBACK_COOLDOWN_DAYS);
 var allowedEcosystems = new Set(parseCsvList(process.env.ALLOWED_ECOSYSTEMS));
 var packageEcosystem = process.env.METADATA_PACKAGE_ECOSYSTEM ?? "";
 var updateType = process.env.METADATA_UPDATE_TYPE ?? "";
@@ -6281,12 +6326,27 @@ var checkedAt = resolveApprovalCheckedAt({
   sha: pullRequest.head.sha,
   dependencyKey
 });
+var cooldownNoticed = hasUnappliedCooldownNotice(pullRequest.body);
+var cooldownDays = resolveApprovalCooldownDays({
+  existingPayload: existingApprovalComment?.payload,
+  sha: pullRequest.head.sha,
+  dependencyKey,
+  detectedCooldownDays: cooldownNoticed ? fallbackCooldownDays : 0
+});
+var requiredAgeDays = requiredApprovalAgeDays({ quarantineDays, cooldownDays });
 var ageDays = calculateAgeDays(checkedAt);
-var quarantinePassed = ageDays >= quarantineDays;
+var quarantinePassed = ageDays >= requiredAgeDays;
 var approvalStatus = candidate ? "approved" : "rejected";
 outputs["age-days"] = String(ageDays);
+outputs["cooldown-days"] = String(cooldownDays);
 outputs["quarantine-passed"] = quarantinePassed ? "true" : "false";
 outputs["automerge-enabled"] = pullRequest.auto_merge ? "true" : "false";
+if (cooldownNoticed) {
+  console.log("  Dependabot could not apply its cooldown: the registry gave no publication date.");
+}
+if (cooldownDays > 0) {
+  console.log(`  Waiting ${cooldownDays} day(s) for the missing cooldown before the ${quarantineDays}-day quarantine.`);
+}
 console.log(`  Approval age: ${ageDays} day(s)`);
 var approvalCommentBody = buildApprovalComment({
   status: approvalStatus,
@@ -6297,7 +6357,8 @@ var approvalCommentBody = buildApprovalComment({
   dependencyFileStatus: outputs["dependency-file-status"],
   lockfileStatus: outputs["lockfile-status"],
   dependencyKey,
-  checkedAt
+  checkedAt,
+  cooldownDays
 });
 if (existingApprovalComment) {
   await github.updateIssueComment(existingApprovalComment.comment.id, approvalCommentBody);
@@ -6311,7 +6372,7 @@ if (!candidate) {
 }
 if (!quarantinePassed) {
   outputs.reason = "waiting-for-quarantine";
-  console.log(`  Approval signal written. Waiting for ${quarantineDays}-day quarantine.`);
+  console.log(`  Approval signal written. Waiting until the approval is ${requiredAgeDays} day(s) old.`);
   writeOutputs(outputs);
   process.exit(0);
 }

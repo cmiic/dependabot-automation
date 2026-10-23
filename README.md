@@ -32,12 +32,13 @@ By default the PR action:
 - upserts a bot-authored approval comment tied to the current PR head SHA
 - preserves the first evaluation timestamp for the current head SHA, so quarantine is not reset by re-runs of the action
 - carries forward the quarantine timestamp across rebases when the dependency versions are unchanged
+- when Dependabot says in the PR body that it could not apply its cooldown because the registry gave no publication date (GHCR, for example), adds `fallback-cooldown-days` before the quarantine for that PR and records the extra days in the approval comment; like the timestamp, they carry forward across rebases that leave the dependency versions unchanged
 
 The cron action:
 
 - scans open Dependabot PRs directly
 - verifies the latest bot-authored approval comment is `approved` for the current PR head SHA
-- waits for the same quarantine period based on that approval comment timestamp
+- waits for the same quarantine period based on that approval comment timestamp, plus any cooldown days the approval comment records, and skips a PR whose recorded cooldown days it cannot read
 - walks candidates in approval-age order (oldest-approved first) and takes at most one advancing action per run on the oldest candidate it can actually advance: direct merge (`clean`) or enable auto-merge (`blocked`/`unstable`)
 - steps over candidates the cron cannot advance on its own without holding up the queue: `behind` (waits for Dependabot's own rebase schedule), `dirty` (merge conflict, human needed), `draft`, and `unknown`/null (transient, retried next run)
 - when a PR already has auto-merge enabled but the branch is `behind`, the cron disables auto-merge to protect the approval invariant (otherwise the rebased SHA could auto-merge before the cron re-validates approval) and holds the pipeline for that one run; on subsequent runs the same PR is just `behind` without auto-merge, so the queue flows past it again
@@ -165,10 +166,12 @@ Shared inputs:
 
 - `github-token`: required
 - `quarantine-days`: default `3`
-  Since July 2026, Dependabot version updates apply a 3-day package cooldown by default before a PR is even opened, so new releases are already at least three days old on arrival. Stacking the full default quarantine on top of that mostly adds latency; `quarantine-days: "1"` (as in the examples above) is usually enough. Note that security updates skip the cooldown, so the quarantine is still the only delay for those. The default remains `3` so existing setups keep their behavior unchanged; expect it to be lowered in a future major version.
+  Since July 2026, Dependabot version updates apply a 3-day package cooldown by default before a PR is even opened, so new releases are already at least three days old on arrival. The exception is a registry that gives Dependabot no publication date, such as GHCR: Dependabot then opens the PR straight away with a warning, and `fallback-cooldown-days` makes up for the missing wait. Stacking the full default quarantine on top of that mostly adds latency; `quarantine-days: "1"` (as in the examples above) is usually enough. Note that security updates skip the cooldown, so the quarantine is still the only delay for those. The default remains `3` so existing setups keep their behavior unchanged; expect it to be lowered in a future major version.
 
 `merge`-only inputs:
 
+- `fallback-cooldown-days`: default `3`
+  Days added before the quarantine when the PR body carries Dependabot's warning that its cooldown could not be applied because no publication date was available from the registry. The release can be brand new when such a PR opens, so the wait is counted from the first evaluation of the dependency versions: first these days, then `quarantine-days`. Set it to the cooldown in your `dependabot.yml`; the default matches Dependabot's default cooldown. The approval comment records the days, and `cron` reads them from there, so it needs no input of its own.
 - `allowed-ecosystems`: default `github_actions,npm_and_yarn,devcontainers,docker,docker_compose,uv,pip`
 - `trusted-images`: default empty
   Comma-separated image repositories whose `docker` and `docker_compose` updates may auto-merge. An entry is a repository such as `docker.io/library/debian`, or a prefix such as `ghcr.io/my-org/*` that covers every repository below it; `*` trusts all images. Names are compared the way Docker reads them, so `debian`, `docker.io/debian` and `index.docker.io/library/debian` are the same repository. An entry with a tag, a digest or a `*` anywhere else rejects every image update with reason `invalid-trusted-images`.
@@ -192,6 +195,7 @@ Shared inputs:
 - `package-ecosystem`
 - `update-type`
 - `age-days`
+- `cooldown-days` (days added before the quarantine because Dependabot could not apply its cooldown; `0` when it did)
 - `dependency-file-status`
 - `lockfile-status` (legacy alias for `dependency-file-status`)
 
@@ -209,6 +213,7 @@ Shared inputs:
 - Cron requires the latest machine-written approval comment from `github-actions[bot]` to say `approved` for the current PR head SHA.
 - The quarantine timer is anchored to the first evaluation timestamp for the dependency versions being updated, not the PR creation time. Rebases that do not change the dependency versions preserve the original timer.
 - Wrapper workflows own triggers and permissions; this repository owns the evaluation and merge behavior.
+- Upgrade `merge` and `cron` together. The cron reads the cooldown days the merge action records in the approval comment; a cron older than the merge action ignores them and would merge after the quarantine alone.
 - The action runtime is shipped as committed ESM bundles under `dist/`; consuming repositories do not need to provide `package.json` or `package-lock.json` for this action to bootstrap.
 - On GitHub.com, pull request comment reads and writes used by this action work with the `pull-requests` permission, so separate `issues:*` scopes are not required for these wrapper workflows.
 - On GitHub.com, the `merge` wrapper needs `contents: read` to inspect the checked-out PR head and fetch the base SHA for policy checks.
