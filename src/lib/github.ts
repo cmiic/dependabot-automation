@@ -21,9 +21,26 @@ export interface PullRequestSummary {
 
 export interface PullRequest extends PullRequestSummary {
   node_id: string
+  state?: string
+  merged?: boolean
+  draft?: boolean
   body?: string | null
   mergeable_state?: string | null
   auto_merge?: Record<string, unknown> | null
+}
+
+export interface PullRequestReview {
+  id: number
+  user?: GitHubUser | null
+  state: string
+  commit_id: string
+}
+
+export function hasCurrentApproval (reviews: PullRequestReview[], login: string, sha: string): boolean {
+  // Comments and pending reviews do not replace a submitted review decision.
+  const latest = reviews.findLast(review => review.user?.login === login
+    && ['APPROVED', 'CHANGES_REQUESTED', 'DISMISSED'].includes(review.state))
+  return latest?.state === 'APPROVED' && latest.commit_id === sha
 }
 
 export interface IssueComment {
@@ -218,9 +235,37 @@ export class GitHubClient {
     return data.disablePullRequestAutoMerge.pullRequest
   }
 
-  async mergePullRequest (number: number, mergeMethod: MergeMethod): Promise<unknown> {
+  async mergePullRequest (number: number, mergeMethod: MergeMethod, sha: string): Promise<unknown> {
     return this.request('PUT', `/repos/${this.owner}/${this.repo}/pulls/${number}/merge`, {
-      merge_method: mergeMethod.toLowerCase()
+      merge_method: mergeMethod.toLowerCase(),
+      sha
+    })
+  }
+
+  async getViewerLogin (): Promise<string> {
+    const data = await this.graphql<{ viewer: { login: string } }>('query { viewer { login } }', {})
+    return data.viewer.login
+  }
+
+  async listPullRequestReviews (number: number): Promise<PullRequestReview[]> {
+    const items: PullRequestReview[] = []
+    for (let page = 1; ; page += 1) {
+      const pageItems = await this.request<PullRequestReview[]>(
+        'GET',
+        `/repos/${this.owner}/${this.repo}/pulls/${number}/reviews?per_page=100&page=${page}`
+      )
+      items.push(...pageItems)
+      if (pageItems.length < 100) {
+        return items
+      }
+    }
+  }
+
+  async approvePullRequest (number: number, sha: string): Promise<PullRequestReview> {
+    return this.request('POST', `/repos/${this.owner}/${this.repo}/pulls/${number}/reviews`, {
+      commit_id: sha,
+      event: 'APPROVE',
+      body: 'Dependabot Automation: the policy evaluation approved this commit and its quarantine, including any fallback cooldown, has passed.'
     })
   }
 

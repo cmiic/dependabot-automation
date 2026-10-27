@@ -50,6 +50,10 @@ function parseApprovalComment(body) {
 // src/lib/github.ts
 var API_VERSION = "2022-11-28";
 var USER_AGENT = "cmiic-dependabot-automation";
+function hasCurrentApproval(reviews, login, sha) {
+  const latest = reviews.findLast((review) => review.user?.login === login && ["APPROVED", "CHANGES_REQUESTED", "DISMISSED"].includes(review.state));
+  return latest?.state === "APPROVED" && latest.commit_id === sha;
+}
 function normalizeMergeMethod(raw = "squash") {
   const normalized = String(raw).trim().toUpperCase();
   if (normalized === "MERGE" || normalized === "SQUASH" || normalized === "REBASE") {
@@ -174,9 +178,34 @@ var GitHubClient = class {
     );
     return data.disablePullRequestAutoMerge.pullRequest;
   }
-  async mergePullRequest(number, mergeMethod2) {
+  async mergePullRequest(number, mergeMethod2, sha) {
     return this.request("PUT", `/repos/${this.owner}/${this.repo}/pulls/${number}/merge`, {
-      merge_method: mergeMethod2.toLowerCase()
+      merge_method: mergeMethod2.toLowerCase(),
+      sha
+    });
+  }
+  async getViewerLogin() {
+    const data = await this.graphql("query { viewer { login } }", {});
+    return data.viewer.login;
+  }
+  async listPullRequestReviews(number) {
+    const items = [];
+    for (let page = 1; ; page += 1) {
+      const pageItems = await this.request(
+        "GET",
+        `/repos/${this.owner}/${this.repo}/pulls/${number}/reviews?per_page=100&page=${page}`
+      );
+      items.push(...pageItems);
+      if (pageItems.length < 100) {
+        return items;
+      }
+    }
+  }
+  async approvePullRequest(number, sha) {
+    return this.request("POST", `/repos/${this.owner}/${this.repo}/pulls/${number}/reviews`, {
+      commit_id: sha,
+      event: "APPROVE",
+      body: "Dependabot Automation: the policy evaluation approved this commit and its quarantine, including any fallback cooldown, has passed."
     });
   }
   async listOpenPullRequests() {
@@ -278,6 +307,12 @@ function isAutoMergeAlreadyEnabledError(error) {
 var token = process.env.GITHUB_TOKEN;
 var quarantineDays = Number.parseInt(process.env.QUARANTINE_DAYS ?? "3", 10);
 var mergeMethod = normalizeMergeMethod(process.env.MERGE_METHOD);
+var approvalInput = process.env.APPROVE_PULL_REQUESTS ?? "false";
+if (approvalInput !== "true" && approvalInput !== "false") {
+  throw new Error("APPROVE_PULL_REQUESTS must be true or false");
+}
+var approvePullRequests = approvalInput === "true";
+var reviewerLogin;
 var github = new GitHubClient({ token });
 var pullRequests = await github.listOpenPullRequests();
 var dependabotPullRequests = pullRequests.filter((pullRequest) => pullRequest.user?.login === "dependabot[bot]");
@@ -297,38 +332,8 @@ for (const pullRequestSummary of dependabotPullRequests) {
   try {
     const pullRequest = await github.getPullRequest(pullRequestSummary.number);
     const comments = await github.listIssueComments(pullRequestSummary.number);
-    const approvalComment = comments.filter((comment) => comment.user?.login === "github-actions[bot]").map((comment) => ({ comment, payload: parseApprovalComment(comment.body) })).filter(hasApprovalPayload).sort((left, right) => Date.parse(right.comment.updated_at) - Date.parse(left.comment.updated_at))[0];
-    if (!approvalComment) {
-      console.log("  Skipping: no machine-written approval signal found");
-      continue;
-    }
-    if (approvalComment.payload.status !== "approved") {
-      console.log(`  Skipping: latest approval signal status is ${approvalComment.payload.status}`);
-      continue;
-    }
-    if (approvalComment.payload.sha !== pullRequest.head.sha) {
-      console.log(
-        `  Skipping: approval signal is for ${approvalComment.payload.sha}, current head is ${pullRequest.head.sha}`
-      );
-      continue;
-    }
-    const checkedAt = getApprovalCheckedAt(approvalComment.payload, approvalComment.comment);
+    const checkedAt = getEligibleCheckedAt(pullRequest, comments);
     if (!checkedAt) {
-      console.log("  Skipping: latest approval signal has no valid checkedAt timestamp");
-      continue;
-    }
-    const cooldownDays = getApprovalCooldownDays(approvalComment.payload);
-    if (cooldownDays === null) {
-      console.log("  Skipping: latest approval signal has an invalid cooldownDays value");
-      continue;
-    }
-    const requiredAgeDays = requiredApprovalAgeDays({ quarantineDays, cooldownDays });
-    const ageDays = calculateAgeDays(checkedAt);
-    console.log(`  Approved at: ${checkedAt}`);
-    console.log(`  Approval age: ${ageDays} day(s)`);
-    if (ageDays < requiredAgeDays) {
-      const cooldownNote = cooldownDays > 0 ? `, including ${cooldownDays} for the cooldown Dependabot could not apply` : "";
-      console.log(`  Waiting for quarantine (${ageDays} < ${requiredAgeDays} days since approval${cooldownNote})`);
       continue;
     }
     quarantinePassedCount += 1;
@@ -341,7 +346,8 @@ for (const pullRequestSummary of dependabotPullRequests) {
 }
 candidates.sort((left, right) => Date.parse(left.checkedAt) - Date.parse(right.checkedAt));
 var pipelineBusy = false;
-for (const { pullRequest } of candidates) {
+for (const candidate of candidates) {
+  let pullRequest = candidate.pullRequest;
   const number = pullRequest.number;
   console.log("\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501");
   console.log(`PR #${number} (acting)`);
@@ -349,8 +355,57 @@ for (const { pullRequest } of candidates) {
     console.log("  Skipping: older candidate is in flight; will revisit next run");
     continue;
   }
-  const state = pullRequest.mergeable_state;
   try {
+    const refreshed = await refreshCandidate(pullRequest);
+    if (!refreshed) {
+      continue;
+    }
+    pullRequest = refreshed;
+    if (approvePullRequests && canApprove(pullRequest)) {
+      reviewerLogin ??= await github.getViewerLogin();
+      const reviews = await github.listPullRequestReviews(number);
+      if (!hasCurrentApproval(reviews, reviewerLogin, pullRequest.head.sha)) {
+        const beforeReview = await refreshCandidate(pullRequest);
+        if (!beforeReview) {
+          continue;
+        }
+        pullRequest = beforeReview;
+        if (canApprove(pullRequest)) {
+          pipelineBusy = true;
+          try {
+            await github.approvePullRequest(number, pullRequest.head.sha);
+          } catch (error) {
+            console.log(`  Approval failed: ${extractErrorMessages(error).join("; ")}`);
+            console.log("  Check pull-requests: write and Settings > Actions > General > Allow GitHub Actions to create and approve pull requests (including organization/enterprise policy). The token identity must differ from the PR author.");
+            throw error;
+          }
+          console.log(`  Submitted approval for ${pullRequest.head.sha}`);
+          const afterReview = await github.getPullRequest(number);
+          if (afterReview.merged) {
+            mergedCount += 1;
+            console.log("  Merged after approval");
+            continue;
+          }
+          const validated = await validateCandidate(pullRequest, afterReview);
+          if (!validated) {
+            continue;
+          }
+          pullRequest = validated;
+        }
+      } else {
+        console.log(`  Reviewer ${reviewerLogin} already approved ${pullRequest.head.sha}`);
+        const validated = await refreshCandidate(pullRequest);
+        if (!validated) {
+          continue;
+        }
+        pullRequest = validated;
+      }
+    }
+    const state = pullRequest.mergeable_state;
+    if (pullRequest.draft) {
+      console.log("  Skipping: pull request is a draft");
+      continue;
+    }
     if (pullRequest.auto_merge) {
       if (state === "behind") {
         console.log("  Auto-merge enabled but branch behind; disabling so the rebased SHA cannot merge before cron re-validates approval");
@@ -371,7 +426,7 @@ for (const { pullRequest } of candidates) {
       }
     } else if (state === "clean") {
       try {
-        await github.mergePullRequest(number, mergeMethod);
+        await github.mergePullRequest(number, mergeMethod, pullRequest.head.sha);
         mergedCount += 1;
         pipelineBusy = true;
         console.log("  Merged");
@@ -379,7 +434,7 @@ for (const { pullRequest } of candidates) {
         if (mergeError instanceof GitHubRequestError && (mergeError.status === 405 || mergeError.status === 409)) {
           const mergeErrorMessage = isRecord(mergeError.data) && typeof mergeError.data.message === "string" ? mergeError.data.message : getErrorMessage(mergeError);
           console.log(`  Direct merge refused (${mergeError.status}): ${mergeErrorMessage}`);
-          console.log("  Not actionable from cron; waiting for Dependabot to rebase (queue continues)");
+          console.log(`  Merge requirements or head changed; will retry next run (${pipelineBusy ? "queue held after approval" : "queue continues"})`);
         } else {
           throw mergeError;
         }
@@ -387,7 +442,7 @@ for (const { pullRequest } of candidates) {
     } else if (state === "behind") {
       console.log("  Branch behind base; not actionable from cron, waiting for Dependabot to rebase (queue continues)");
     } else if (state === "blocked" || state === "unstable") {
-      await enableAutoMerge(pullRequest, `checks pending (${state})`);
+      await enableAutoMerge(pullRequest, `merge requirements pending (${state})`);
       pipelineBusy = true;
     } else if (state === "dirty") {
       console.log("  Skipping: merge conflict, needs manual resolution");
@@ -431,4 +486,64 @@ async function enableAutoMerge(pullRequest, reason) {
     }
     throw error;
   }
+}
+function getEligibleCheckedAt(pullRequest, comments) {
+  const approvalComment = comments.filter((comment) => comment.user?.login === "github-actions[bot]").map((comment) => ({ comment, payload: parseApprovalComment(comment.body) })).filter(hasApprovalPayload).sort((left, right) => Date.parse(right.comment.updated_at) - Date.parse(left.comment.updated_at))[0];
+  if (!approvalComment) {
+    console.log("  Skipping: no machine-written approval signal found");
+    return null;
+  }
+  if (approvalComment.payload.status !== "approved") {
+    console.log(`  Skipping: latest approval signal status is ${approvalComment.payload.status}`);
+    return null;
+  }
+  if (approvalComment.payload.sha !== pullRequest.head.sha) {
+    console.log(
+      `  Skipping: approval signal is for ${approvalComment.payload.sha}, current head is ${pullRequest.head.sha}`
+    );
+    return null;
+  }
+  const checkedAt = getApprovalCheckedAt(approvalComment.payload, approvalComment.comment);
+  if (!checkedAt) {
+    console.log("  Skipping: latest approval signal has no valid checkedAt timestamp");
+    return null;
+  }
+  const cooldownDays = getApprovalCooldownDays(approvalComment.payload);
+  if (cooldownDays === null) {
+    console.log("  Skipping: latest approval signal has an invalid cooldownDays value");
+    return null;
+  }
+  const requiredAgeDays = requiredApprovalAgeDays({ quarantineDays, cooldownDays });
+  const ageDays = calculateAgeDays(checkedAt);
+  console.log(`  Approved at: ${checkedAt}`);
+  console.log(`  Approval age: ${ageDays} day(s)`);
+  if (ageDays < requiredAgeDays) {
+    const cooldownNote = cooldownDays > 0 ? `, including ${cooldownDays} for the cooldown Dependabot could not apply` : "";
+    console.log(`  Waiting for quarantine (${ageDays} < ${requiredAgeDays} days since approval${cooldownNote})`);
+    return null;
+  }
+  return checkedAt;
+}
+function canApprove(pullRequest) {
+  return !pullRequest.draft && ["clean", "blocked", "unstable"].includes(pullRequest.mergeable_state ?? "");
+}
+async function refreshCandidate(expected) {
+  return validateCandidate(expected, await github.getPullRequest(expected.number));
+}
+async function validateCandidate(expected, current) {
+  if (current.state !== "open" || current.user?.login !== "dependabot[bot]") {
+    console.log("  Skipping: PR is no longer an open Dependabot PR");
+    return null;
+  }
+  const comments = await github.listIssueComments(current.number);
+  if (current.head.sha !== expected.head.sha || !getEligibleCheckedAt(current, comments)) {
+    console.log("  Skipping: head or approval eligibility changed; will revisit next run");
+    if (current.auto_merge) {
+      await github.disablePullRequestAutoMerge(current.node_id);
+      pipelineBusy = true;
+      console.log("  Disabled auto-merge until approval can be re-validated");
+    }
+    return null;
+  }
+  return current;
 }
