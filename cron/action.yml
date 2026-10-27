@@ -13,6 +13,10 @@ inputs:
     description: Auto-merge method. Supported values are merge, squash, and rebase.
     required: false
     default: squash
+  approve-pull-requests:
+    description: Submit a formal approval after quarantine. Requires pull-requests:write and permission for GitHub Actions to approve pull requests.
+    required: false
+    default: "false"
 
 outputs:
   processed-count:
@@ -47,4 +51,5 @@ runs:
         GITHUB_TOKEN: ${{ inputs.github-token }}
         QUARANTINE_DAYS: ${{ inputs.quarantine-days }}
         MERGE_METHOD: ${{ inputs.merge-method }}
+        APPROVE_PULL_REQUESTS: ${{ inputs.approve-pull-requests }}
       run: node "$GITHUB_ACTION_PATH/../dist/process-cron.js"

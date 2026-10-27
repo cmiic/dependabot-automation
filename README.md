@@ -39,10 +39,12 @@ The cron action:
 - scans open Dependabot PRs directly
 - verifies the latest bot-authored approval comment is `approved` for the current PR head SHA
 - waits for the same quarantine period based on that approval comment timestamp, plus any cooldown days the approval comment records, and skips a PR whose recorded cooldown days it cannot read
-- walks candidates in approval-age order (oldest-approved first) and takes at most one advancing action per run on the oldest candidate it can actually advance: direct merge (`clean`) or enable auto-merge (`blocked`/`unstable`)
+- walks candidates in approval-age order (oldest-approved first) and advances at most one candidate per run: optionally submit a formal approval, then direct merge (`clean`) or enable auto-merge (`blocked`/`unstable`)
+- with `approve-pull-requests: "true"`, submits a formal review only after quarantine and any fallback cooldown, including for eligible PRs already waiting with auto-merge enabled; an existing approval by the token identity for the current SHA avoids a duplicate review
+- refreshes the PR and approval signal before acting; direct merge requests include the validated head SHA, and a detected change of head or approval eligibility disables existing auto-merge until re-validation
 - steps over candidates the cron cannot advance on its own without holding up the queue: `behind` (waits for Dependabot's own rebase schedule), `dirty` (merge conflict, human needed), `draft`, and `unknown`/null (transient, retried next run)
 - when a PR already has auto-merge enabled but the branch is `behind`, the cron disables auto-merge to protect the approval invariant (otherwise the rebased SHA could auto-merge before the cron re-validates approval) and holds the pipeline for that one run; on subsequent runs the same PR is just `behind` without auto-merge, so the queue flows past it again
-- never posts comments, updates branches, or otherwise mutates the PR's commit history — this preserves the Dependabot commit-verification invariant and keeps the required token scopes minimal (the default `GITHUB_TOKEN` is enough)
+- never posts issue comments, updates branches, or otherwise mutates the PR's commit history — this preserves the Dependabot commit-verification invariant and keeps the required token scopes minimal (the default `GITHUB_TOKEN` is enough)
 
 ### Cron decision matrix
 
@@ -60,6 +62,17 @@ The cron action:
 | set          | `clean` / `blocked` / `unstable` | none (already in flight)             | yes                       |
 
 "Holds queue for this run" means `pipelineBusy = true`: subsequent, younger candidates are skipped this run. A `no` means the cron moves on to the next-oldest candidate in the same run.
+
+With `approve-pull-requests: "true"`, these steps precede the merge decisions above:
+
+| Condition | Cron action | Holds queue for this run? |
+| --------- | ----------- | ------------------------- |
+| Eligible `clean` / `blocked` / `unstable` PR without a current approval by the token identity | Submit approval, refresh state, then apply the merge decision | yes |
+| Same PR, but a current approval already exists | Skip duplicate review, refresh state, then apply the merge decision | follows merge decision |
+| Approval submission fails | Report GitHub's error and configuration guidance; do not attempt merge | yes |
+| Approval immediately triggers existing auto-merge | Count the observed merge; no further merge request | yes |
+
+Submitting approval holds the queue even if a subsequent merge is refused or the refreshed state is unknown, since approval itself can trigger auto-merge. Behind, conflicting, draft, and unknown-state PRs receive no new review.
 
 ## Wrapper Workflows
 
@@ -115,6 +128,26 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           quarantine-days: "1"
 ```
+
+### Required pull request approvals
+
+The evaluation comment is an internal policy signal, not a GitHub approving review. To satisfy a ruleset requiring one approval with an automated review, opt in on the `cron` step:
+
+```yaml
+- uses: cmiic/dependabot-automation/cron@<sha>
+  with:
+    github-token: ${{ secrets.GITHUB_TOKEN }}
+    quarantine-days: "1"
+    approve-pull-requests: "true"
+```
+
+Keep `contents: write` and `pull-requests: write` on the workflow. In **Settings > Actions > General > Workflow permissions**, enable **Allow GitHub Actions to create and approve pull requests**. Organization or enterprise policy can restrict this setting. The default `GITHUB_TOKEN` can approve Dependabot PRs; a separate PAT is not required. See [GitHub's Actions settings](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/managing-github-actions-settings-for-a-repository#preventing-github-actions-from-creating-or-approving-pull-requests).
+
+Approval happens only after the evaluation signal's quarantine and fallback cooldown have elapsed. It does not change the evaluation timestamp. The cron resolves the token's reviewer identity and checks its latest submitted review decision to avoid repeat approvals for the same SHA. Old or dismissed approvals do not suppress a new review. Duplicate suppression is best effort across overlapping workflow runs because GitHub does not provide an atomic list-and-create-review operation.
+
+This contributes one automated approval, subject to GitHub's rules. It does not supply additional reviewers, CODEOWNERS or required-team approvals, dismiss human requests for changes, or bypass other merge requirements. Keep required checks enabled. Enable **Dismiss stale pull request approvals when new commits are pushed** to prevent approvals surviving changed content: `commit_id` records the reviewed SHA but does not lock the PR head. Refreshes reduce races; they cannot atomically bind approval or deferred auto-merge to a SHA. See [GitHub's ruleset review settings](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets#require-a-pull-request-before-merging).
+
+When using the combined wrapper below, set `approve-pull-requests: "true"` on both its inline `cron` step and the scheduled `cron` step if both should submit reviews.
 
 ### Combined wrapper (optional, lower latency)
 
@@ -183,6 +216,8 @@ Shared inputs:
 `cron`-only inputs:
 
 - `merge-method`: default `squash`
+- `approve-pull-requests`: default `false`
+  Submit a formal approving review for the selected eligible PR after quarantine. Requires the Actions approval setting described above. Accepts `"true"` or `"false"`; leaving it disabled preserves the existing merge behavior without submitting reviews.
 
 ## Outputs
 
@@ -203,7 +238,7 @@ Shared inputs:
 
 - `processed-count`
 - `quarantine-passed-count`
-- `merged-count`
+- `merged-count` (includes a merge observed immediately after submitting approval)
 - `automerge-enabled-count`
 - `already-enabled-count`
 - `failed-count`
@@ -219,9 +254,9 @@ Shared inputs:
 - On GitHub.com, the `merge` wrapper needs `contents: read` to inspect the checked-out PR head and fetch the base SHA for policy checks.
 - On GitHub.com, the `cron` wrapper still needs `contents: write` because the pull request merge endpoint is gated by repository contents write access.
 - Stale PRs are left to Dependabot's own rebase schedule. Worst-case latency on a `behind` PR is one Dependabot rebase cycle plus one cron cycle. Increase cron frequency (or tighten `dependabot.yml` update cadence) if that matters for your repo.
-- Some PRs can sit open indefinitely if nothing advances them — for example, a lingering `dirty` merge conflict, a `behind` PR in a repo where Dependabot auto-rebase is disabled or has stopped, or a PR `blocked` on a permanently failing required check. The cron does not try to recover these; it logs the state and steps over them so the rest of the queue keeps flowing. Resolving the underlying issue is a human decision.
+- Some PRs can sit open indefinitely if nothing advances them — for example, a lingering `dirty` merge conflict, a `behind` PR in a repo where Dependabot auto-rebase is disabled or has stopped, or a PR `blocked` on a permanently failing required check. The cron does not try to recover these: `dirty` and `behind` PRs without auto-merge are stepped over, while a PR with auto-merge waiting on unmet requirements holds the queue. Resolving the underlying issue is a human decision.
 
 ## Maintainers
 
-- After changing files under `src/` or runtime dependencies in `package.json`, run `npm run typecheck`, `npm test`, and `npm run build`, then commit the updated files under `dist/`.
+- After changing files under `src/` or runtime dependencies in `package.json`, run `npm run lint`, `npm run typecheck`, `npm test`, and `npm run build`, then commit the updated files under `dist/`.
 - CI runs `npm run check:dist` to ensure the committed bundles match the current source tree.

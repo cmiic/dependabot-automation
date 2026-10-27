@@ -5523,9 +5523,34 @@ var GitHubClient = class {
     );
     return data.disablePullRequestAutoMerge.pullRequest;
   }
-  async mergePullRequest(number, mergeMethod) {
+  async mergePullRequest(number, mergeMethod, sha) {
     return this.request("PUT", `/repos/${this.owner}/${this.repo}/pulls/${number}/merge`, {
-      merge_method: mergeMethod.toLowerCase()
+      merge_method: mergeMethod.toLowerCase(),
+      sha
+    });
+  }
+  async getViewerLogin() {
+    const data = await this.graphql("query { viewer { login } }", {});
+    return data.viewer.login;
+  }
+  async listPullRequestReviews(number) {
+    const items = [];
+    for (let page = 1; ; page += 1) {
+      const pageItems = await this.request(
+        "GET",
+        `/repos/${this.owner}/${this.repo}/pulls/${number}/reviews?per_page=100&page=${page}`
+      );
+      items.push(...pageItems);
+      if (pageItems.length < 100) {
+        return items;
+      }
+    }
+  }
+  async approvePullRequest(number, sha) {
+    return this.request("POST", `/repos/${this.owner}/${this.repo}/pulls/${number}/reviews`, {
+      commit_id: sha,
+      event: "APPROVE",
+      body: "Dependabot Automation: the policy evaluation approved this commit and its quarantine, including any fallback cooldown, has passed."
     });
   }
   async listOpenPullRequests() {
